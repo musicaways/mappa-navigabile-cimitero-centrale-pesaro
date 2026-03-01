@@ -1,0 +1,7 @@
+{
+  "name": "Mappa navigabile cimitero centrale pesaro",
+  "description": "Applicazione mobile-first per orientarsi nel Cimitero Centrale di Pesaro, con ricerca settori, informazioni utili e navigazione guidata.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
