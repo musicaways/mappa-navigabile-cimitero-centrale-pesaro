@@ -133,6 +133,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   const handledPathZoomTriggerRef = useRef(0);
   const layoutReadyRafRef = useRef<number | null>(null);
   const layoutReadyTimeoutRef = useRef<number | null>(null);
+  const followViewPrimedRef = useRef(false);
 
   const isMobile = isMobileDevice();
   const displayRotation = isMobile ? -mapRotation : mapRotation;
@@ -769,6 +770,24 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     mapRef.current.setView(DEFAULT_CENTER, DEFAULT_ZOOM, { animate: true });
   }, [resetViewTrigger]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMobile) return;
+
+    if (!followUser || !navActive || !userLocation) {
+      followViewPrimedRef.current = false;
+      return;
+    }
+
+    const currentZoom = map.getZoom();
+    const maxStableNavZoom = 17.4;
+    if (!followViewPrimedRef.current || currentZoom > 17.8) {
+      map.invalidateSize({ animate: false });
+      map.setView([userLocation.lat, userLocation.lng], Math.min(currentZoom, maxStableNavZoom), { animate: false });
+      followViewPrimedRef.current = true;
+    }
+  }, [followUser, isMobile, navActive, userLocation]);
+
   // 4. USER MARKER
   useEffect(() => {
     if (!mapRef.current) return;
@@ -1154,12 +1173,19 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     if (!feature) return;
 
     if (feature.geometry.type === 'Point') {
-        mapRef.current.setView(toLatLngTuple(feature.geometry.coordinates), 19, { animate: true });
+        mapRef.current.setView(
+          toLatLngTuple(feature.geometry.coordinates),
+          isMobile ? 17.8 : 19,
+          { animate: true }
+        );
     } else {
         const layer = L.geoJSON(feature);
-        mapRef.current.fitBounds(layer.getBounds(), { padding: [50, 50], maxZoom: 19 });
+        mapRef.current.fitBounds(layer.getBounds(), {
+          padding: [50, 50],
+          maxZoom: isMobile ? 17.8 : 19,
+        });
     }
-  }, [selectedTrailId, zoomTrigger, data, getFeatureById]);
+  }, [selectedTrailId, zoomTrigger, data, getFeatureById, isMobile]);
 
   return (
     <div 
@@ -1178,8 +1204,8 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         <div 
             ref={containerRef}
             style={{ 
-                width: printMode ? '100%' : effectiveDisplayRotation !== 0 ? '220vmax' : '150vmax', 
-                height: printMode ? '100%' : effectiveDisplayRotation !== 0 ? '220vmax' : '150vmax',
+                width: printMode ? '100%' : effectiveDisplayRotation !== 0 ? (isMobile ? '260vmax' : '220vmax') : '150vmax', 
+                height: printMode ? '100%' : effectiveDisplayRotation !== 0 ? (isMobile ? '260vmax' : '220vmax') : '150vmax',
                 position: 'absolute',
                 top: printMode ? '0' : '50%',
                 left: printMode ? '0' : '50%',

@@ -627,6 +627,7 @@ export default function App() {
           onHelp={() => setShowHelpModal(true)}
           canInstallApp={isMobile && canInstall}
           onInstallApp={handleInstallApp}
+          behindBottomSheet={isMobile && !!selectedTrail && !showPrintModal}
         />
       )}
 

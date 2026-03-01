@@ -26,7 +26,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
 
   const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
     const now = performance.now();
-    if (now - lastCompassUpdateMsRef.current < 60) {
+    if (now - lastCompassUpdateMsRef.current < 75) {
       return;
     }
 
@@ -63,10 +63,10 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
       while (diff > 180) diff -= 360;
 
       const absDiff = Math.abs(diff);
-      if (absDiff < 3) {
+      if (absDiff < 4) {
         return;
       }
-      if (absDiff > 70 && now - lastCompassUpdateMsRef.current < 150) {
+      if (absDiff > 60 && now - lastCompassUpdateMsRef.current < 220) {
         return;
       }
     }
@@ -254,20 +254,28 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
   }, [attachCompassListeners, compassEnabled]);
 
   const activeRawHeading = useMemo(() => {
-    const isMoving = !!gpsData?.speed && gpsData.speed > 1.1;
-    if (isMoving && gpsData?.heading !== null && gpsData?.heading !== undefined && !Number.isNaN(gpsData.heading)) {
+    const hasReliableCompass = compassEnabled && lastAcceptedHeadingRef.current !== null;
+    const canUseGpsHeading =
+      !!gpsData?.speed &&
+      gpsData.speed > 2.2 &&
+      (gpsData.accuracy ?? Number.POSITIVE_INFINITY) < 18 &&
+      gpsData?.heading !== null &&
+      gpsData?.heading !== undefined &&
+      !Number.isNaN(gpsData.heading);
+
+    if (canUseGpsHeading && !hasReliableCompass) {
       return gpsData.heading;
     }
     return magneticHeading;
-  }, [gpsData, magneticHeading]);
+  }, [compassEnabled, gpsData, magneticHeading]);
 
   const smoothedHeading = useSmoothHeading(activeRawHeading, {
-    deadband: 2.4,
-    mediumThreshold: 18,
-    largeThreshold: 52,
-    alphaSmall: 0.07,
-    alphaMedium: 0.1,
-    alphaLarge: 0.16,
+    deadband: 3.6,
+    mediumThreshold: 22,
+    largeThreshold: 58,
+    alphaSmall: 0.05,
+    alphaMedium: 0.08,
+    alphaLarge: 0.12,
   });
   const smoothedPosition = useSmoothPosition(gpsData ? { lat: gpsData.lat, lng: gpsData.lng } : null);
 

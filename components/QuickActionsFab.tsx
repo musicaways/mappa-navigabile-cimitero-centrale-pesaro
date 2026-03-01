@@ -10,6 +10,7 @@ interface QuickActionsFabProps {
   canInstallApp?: boolean;
   onInstallApp?: () => void;
   aspesHref?: string;
+  behindBottomSheet?: boolean;
 }
 
 const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
@@ -21,6 +22,7 @@ const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
   canInstallApp = false,
   onInstallApp,
   aspesHref = 'https://www.aspes.it/servizi/servizi-cimiteriali/',
+  behindBottomSheet = false,
 }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -45,7 +47,10 @@ const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
   };
 
   return (
-    <div ref={rootRef} className="fixed right-4 bottom-4 z-[3200] flex flex-col items-end gap-3 no-print">
+    <div
+      ref={rootRef}
+      className={`fixed right-4 bottom-4 ${behindBottomSheet ? 'z-[2800]' : 'z-[3200]'} flex flex-col items-end gap-3 no-print`}
+    >
       {open && (
         <>
           {canInstallApp && onInstallApp && (

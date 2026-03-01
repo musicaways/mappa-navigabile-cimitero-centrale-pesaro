@@ -140,12 +140,12 @@ export const useNavigationMapRotation = (
   }, [enabled, navPath, userLocation]);
 
   const smoothedBearing = useSmoothHeading(rawBearing, {
-    deadband: 2,
-    mediumThreshold: 18,
-    largeThreshold: 48,
-    alphaSmall: 0.08,
-    alphaMedium: 0.12,
-    alphaLarge: 0.18,
+    deadband: 4,
+    mediumThreshold: 24,
+    largeThreshold: 62,
+    alphaSmall: 0.05,
+    alphaMedium: 0.08,
+    alphaLarge: 0.12,
   });
   return enabled ? smoothedBearing : 0;
 };
