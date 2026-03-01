@@ -1184,8 +1184,15 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
                 top: printMode ? '0' : '50%',
                 left: printMode ? '0' : '50%',
                 transform: printMode ? 'none' : `translate(-50%, -50%) rotate(${effectiveDisplayRotation}deg)`,
-                transition: printMode ? 'none' : (isMobile ? 'none' : 'transform 0.3s ease-out'),
-                transformOrigin: 'center center'
+                transition: printMode
+                  ? 'none'
+                  : effectiveDisplayRotation !== 0
+                    ? 'transform 240ms cubic-bezier(0.22, 1, 0.36, 1)'
+                    : isMobile
+                      ? 'none'
+                      : 'transform 0.3s ease-out',
+                transformOrigin: 'center center',
+                willChange: printMode ? 'auto' : 'transform',
             }} 
             className="leaflet-map-canvas z-0"
         />

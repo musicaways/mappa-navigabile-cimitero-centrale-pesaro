@@ -1,11 +1,13 @@
 
-const SW_VERSION = 'v4';
+const SW_VERSION = 'v7';
 const APP_CACHE = `pesaro-cimitero-app-${SW_VERSION}`;
 const TILES_CACHE = `map-tiles-${SW_VERSION}`;
 const DATA_CACHE = `map-data-${SW_VERSION}`;
 const CACHE_ALLOWLIST = [APP_CACHE, TILES_CACHE, DATA_CACHE];
 const IS_LOCALHOST = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 const CACHE_STAMP_HEADER = 'x-sw-cached-at';
+const NETWORK_TIMEOUT_MS = 8000;
+const LOCAL_DATA_TIMEOUT_MS = 20000;
 
 const CACHE_TTL_MS = {
   [APP_CACHE]: 24 * 60 * 60 * 1000,
@@ -19,7 +21,16 @@ const CACHE_MAX_ENTRIES = {
   [DATA_CACHE]: 40,
 };
 
-const PRECACHE_ASSETS = ['/', '/index.html', '/manifest.json'];
+const PRECACHE_ASSETS = [
+  '/',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-512.png',
+  '/icons/apple-touch-icon.png',
+  '/data/1dzlxUTK3bz-7kChq1HASlXEpn6t5uQ8.kml',
+];
 const OFFLINE_FALLBACK_HTML = `
 <!doctype html>
 <html lang="it">
@@ -81,10 +92,26 @@ const trimCache = async (cacheName) => {
   await Promise.all(requests.slice(0, surplus).map((request) => cache.delete(request)));
 };
 
+const fetchWithTimeout = async (request, timeoutMs = NETWORK_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(request, { signal: controller.signal });
+  } catch (error) {
+    if (error && error.name === 'AbortError') {
+      throw new Error(`Network timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const networkFirst = async (request, cacheName) => {
   const cache = await caches.open(cacheName);
   try {
-    const networkResponse = await fetch(request);
+    const networkResponse = await fetchWithTimeout(request);
     if (isCacheableResponse(networkResponse)) {
       const cacheEntry = await decorateCacheResponse(networkResponse);
       await cache.put(request, cacheEntry);
@@ -101,13 +128,13 @@ const networkFirst = async (request, cacheName) => {
   }
 };
 
-const cacheFirst = async (request, cacheName) => {
+const cacheFirst = async (request, cacheName, timeoutMs = NETWORK_TIMEOUT_MS) => {
   const cache = await caches.open(cacheName);
   const cachedResponse = await cache.match(request);
   if (cachedResponse && isResponseFresh(cacheName, cachedResponse)) return cachedResponse;
   if (cachedResponse) await cache.delete(request);
 
-  const networkResponse = await fetch(request);
+  const networkResponse = await fetchWithTimeout(request, timeoutMs);
   if (isCacheableResponse(networkResponse)) {
     const cacheEntry = await decorateCacheResponse(networkResponse);
     await cache.put(request, cacheEntry);
@@ -123,7 +150,7 @@ const staleWhileRevalidate = async (request, cacheName) => {
   if (cachedResponse && !isFresh) {
     await cache.delete(request);
   }
-  const networkPromise = fetch(request)
+  const networkPromise = fetchWithTimeout(request)
     .then(async (networkResponse) => {
       if (isCacheableResponse(networkResponse)) {
         const cacheEntry = await decorateCacheResponse(networkResponse);
@@ -220,12 +247,24 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  const isMapDataRequest =
+  const isBundledMapDataRequest =
+    url.origin === self.location.origin &&
+    url.pathname.startsWith('/data/') &&
+    (url.pathname.endsWith('.kml') || url.pathname.endsWith('.json') || url.pathname.endsWith('.geojson'));
+
+  if (isBundledMapDataRequest) {
+    event.respondWith(
+      cacheFirst(request, DATA_CACHE, LOCAL_DATA_TIMEOUT_MS).catch(() => networkFirst(request, DATA_CACHE))
+    );
+    return;
+  }
+
+  const isRemoteMapDataRequest =
     (url.hostname.includes('google.com') && url.pathname.includes('/maps/d/kml')) ||
     (url.hostname.includes('corsproxy.io') && url.search.includes('google.com/maps/d/kml')) ||
     (url.hostname.includes('allorigins.win') && url.search.includes('google.com/maps/d/kml'));
 
-  if (isMapDataRequest) {
+  if (isRemoteMapDataRequest) {
     event.respondWith(staleWhileRevalidate(request, DATA_CACHE));
     return;
   }

@@ -3,8 +3,30 @@ import { Feature, FeatureCollection, Geometry } from 'geojson';
 import { kml } from '@tmcw/togeojson';
 import { MyMapsData, TrailData } from '../types';
 
+const BUNDLED_MAP_DATA_PATH = '/data';
 const PRIMARY_PROXY = 'https://corsproxy.io/?';
 const BACKUP_PROXY = 'https://api.allorigins.win/raw?url=';
+const LOCAL_FETCH_TIMEOUT_MS = 20000;
+const REMOTE_FETCH_TIMEOUT_MS = 9000;
+
+const fetchTextWithTimeout = async (url: string, timeoutMs: number): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Timeout di rete dopo ${timeoutMs} ms.`);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
+};
 
 const extractCoordinates = (feature: Feature<Geometry>): { lat: number; lng: number } | undefined => {
   if (!feature.geometry) return undefined;
@@ -97,30 +119,45 @@ const buildKeywords = (name: string, description: string): string[] => {
   return Array.from(keywords);
 };
 
-const fetchKmlText = async (googleUrl: string): Promise<string> => {
-  let primaryStatus: number | null = null;
-  try {
-    const primaryRes = await fetch(`${PRIMARY_PROXY}${encodeURIComponent(googleUrl)}`);
-    if (primaryRes.ok) {
-      return primaryRes.text();
+const fetchLocalKmlText = async (mapId: string): Promise<string> => {
+  const localUrl = `${BUNDLED_MAP_DATA_PATH}/${mapId}.kml`;
+  const localResponse = await fetchTextWithTimeout(localUrl, LOCAL_FETCH_TIMEOUT_MS);
+  if (!localResponse.ok) {
+    throw new Error(`Snapshot locale non disponibile (${localResponse.status}).`);
+  }
+  return localResponse.text();
+};
+
+const fetchRemoteKmlText = async (googleUrl: string): Promise<string> => {
+  const proxyAttempts = [
+    { label: 'primary', url: `${PRIMARY_PROXY}${encodeURIComponent(googleUrl)}` },
+    { label: 'backup', url: `${BACKUP_PROXY}${encodeURIComponent(googleUrl)}` },
+  ];
+
+  const failures: string[] = [];
+  for (const attempt of proxyAttempts) {
+    try {
+      const response = await fetchTextWithTimeout(attempt.url, REMOTE_FETCH_TIMEOUT_MS);
+      if (!response.ok) {
+        failures.push(`${attempt.label}:${response.status}`);
+        continue;
+      }
+      return response.text();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${attempt.label}:${message}`);
     }
-    primaryStatus = primaryRes.status;
-  } catch (primaryError) {
-    console.warn('Primary proxy failed:', primaryError);
   }
 
+  throw new Error(`Impossibile scaricare i dati della mappa dai proxy disponibili. (${failures.join(', ')})`);
+};
+
+const fetchKmlText = async (mapId: string, googleUrl: string): Promise<string> => {
   try {
-    const backupRes = await fetch(`${BACKUP_PROXY}${encodeURIComponent(googleUrl)}`);
-    if (!backupRes.ok) {
-      throw new Error(
-        `Proxy response not ok (primary=${primaryStatus ?? 'network-error'}, backup=${backupRes.status})`
-      );
-    }
-    return backupRes.text();
-  } catch (backupError) {
-    throw new Error('Impossibile scaricare i dati della mappa dai proxy disponibili.', {
-      cause: backupError instanceof Error ? backupError : new Error(String(backupError)),
-    });
+    return await fetchLocalKmlText(mapId);
+  } catch (localError) {
+    console.warn('Local map snapshot unavailable, falling back to remote proxies:', localError);
+    return fetchRemoteKmlText(googleUrl);
   }
 };
 
@@ -128,7 +165,7 @@ export const fetchMapData = async (mapId: string): Promise<MyMapsData> => {
   try {
     const timestamp = Date.now();
     const googleUrl = `https://www.google.com/maps/d/kml?mid=${mapId}&forcekml=1&t=${timestamp}`;
-    const kmlText = await fetchKmlText(googleUrl);
+    const kmlText = await fetchKmlText(mapId, googleUrl);
 
     const kmlParser = new DOMParser();
     const kmlDom = kmlParser.parseFromString(kmlText, 'text/xml');

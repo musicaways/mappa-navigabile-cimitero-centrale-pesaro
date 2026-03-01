@@ -1,5 +1,5 @@
 import React from 'react';
-import { HelpCircle, Home, Plus, Printer, Search as SearchIcon, Share2, Smartphone, X } from 'lucide-react';
+import { Download, HelpCircle, Home, Plus, Printer, Search as SearchIcon, Share2, Smartphone, X } from 'lucide-react';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -20,7 +20,7 @@ const items = [
   {
     icon: Smartphone,
     title: 'Navigazione GPS',
-    description: 'La navigazione attiva resta disponibile su mobile. Da desktop puoi comunque pianificare e stampare il percorso dal cancello scelto.',
+    description: 'Su mobile la mappa segue la tua posizione e, durante la navigazione, ruota in modo fluido verso il tratto di percorso davanti a te.',
   },
   {
     icon: Printer,
@@ -36,6 +36,11 @@ const items = [
     icon: Home,
     title: 'Vista iniziale',
     description: 'Il reset dal menu + riporta rapidamente la mappa alla visione completa del cimitero e delle sue mura.',
+  },
+  {
+    icon: Download,
+    title: 'Installa sul telefono',
+    description: 'Da mobile trovi l\'azione Installa app nel menu +. Su Android compare il prompt nativo; su iPhone trovi la guida per aggiungerla alla schermata Home.',
   },
 ];
 

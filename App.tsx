@@ -9,6 +9,7 @@ import BottomSheet from './components/BottomSheet';
 import HelpModal from './components/HelpModal';
 import InfoSidebarDesktop from './components/InfoSidebarDesktop';
 import InfoModal from './components/InfoModal';
+import InstallAppModal from './components/InstallAppModal';
 import LeafletMap from './components/LeafletMap';
 import Lightbox from './components/Lightbox';
 import NavigationUI from './components/NavigationUI';
@@ -18,12 +19,15 @@ import QrShareModal from './components/QrShareModal';
 import QuickActionsFab from './components/QuickActionsFab';
 import SearchBar from './components/SearchBar';
 import { useDeviceSensors } from './hooks/useDeviceSensors';
+import { useInstallPrompt } from './hooks/useInstallPrompt';
 import { useMapData } from './hooks/useMapData';
+import { useNavigationMapRotation } from './hooks/useNavigationMapRotation';
 import { parseDeepLink } from './services/deeplink';
 import { Coordinates, TrailData } from './types';
 import { calculateDistance } from './utils';
 
 const MAP_ID = '1dzlxUTK3bz-7kChq1HASlXEpn6t5uQ8';
+const SPLASH_MAX_WAIT_MS = 7000;
 
 type RouteMode = 'idle' | 'navigating' | 'planning';
 type AppToastTone = 'info' | 'warning' | 'error';
@@ -58,7 +62,7 @@ const extractDestinationFromTrail = (trail: TrailData, feature: Feature<Geometry
 
 export default function App() {
   const { data, gates, loading: mapLoading, error: mapError, pathfinder } = useMapData(MAP_ID);
-  const { isMobile, gpsData, gpsLoading, userLocation } = useDeviceSensors();
+  const { isMobile, gpsData, gpsLoading, userLocation, ensureCompassPermission } = useDeviceSensors();
   const deepLink = useMemo(
     () =>
       typeof window === 'undefined'
@@ -86,9 +90,11 @@ export default function App() {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showInstallModal, setShowInstallModal] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [selectedPrintGate, setSelectedPrintGate] = useState<TrailData | null>(null);
   const [searchOpenRequestKey, setSearchOpenRequestKey] = useState(0);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [showStartupSplash, setShowStartupSplash] = useState(true);
   const [isStartupSplashLeaving, setIsStartupSplashLeaving] = useState(false);
   const [appToast, setAppToast] = useState<{ id: number; message: string; tone: AppToastTone } | null>(null);
@@ -101,9 +107,13 @@ export default function App() {
   const printSandboxRef = useRef<PrintSandboxHandle | null>(null);
   const deepLinkHandledRef = useRef(false);
   const splashStartRef = useRef(performance.now());
+  const installStateInitializedRef = useRef(false);
+  const previousInstalledRef = useRef(false);
 
   const isNavigating = routeMode === 'navigating';
   const isPlanning = routeMode === 'planning';
+  const { canInstall, canPromptInstall, isInstalled, isIosManualInstall, promptInstall } = useInstallPrompt(isMobile);
+  const navigationMapRotation = useNavigationMapRotation(isMobile && isNavigating && followUser, userLocation, navPath);
 
   const selectedTrail = useMemo(() => {
     if (!selectedTrailId || !data) return null;
@@ -199,6 +209,37 @@ export default function App() {
     };
   }, [mapError, mapLoading, showStartupSplash]);
 
+  useEffect(() => {
+    if (!showStartupSplash) return;
+
+    const hardStopTimer = window.setTimeout(() => {
+      setIsStartupSplashLeaving(true);
+      window.setTimeout(() => setShowStartupSplash(false), 420);
+
+      if (mapLoading && !mapError) {
+        showToast('Caricamento dati più lento del previsto. Verifica rete e disponibilità del servizio.', 'warning', 4800);
+      }
+    }, SPLASH_MAX_WAIT_MS);
+
+    return () => {
+      window.clearTimeout(hardStopTimer);
+    };
+  }, [mapError, mapLoading, showStartupSplash, showToast]);
+
+  useEffect(() => {
+    if (!installStateInitializedRef.current) {
+      installStateInitializedRef.current = true;
+      previousInstalledRef.current = isInstalled;
+      return;
+    }
+
+    if (!previousInstalledRef.current && isInstalled) {
+      showToast('Applicazione installata correttamente sul dispositivo.', 'info', 3200);
+      setShowInstallModal(false);
+    }
+    previousInstalledRef.current = isInstalled;
+  }, [isInstalled, showToast]);
+
   const clearSelection = useCallback(() => {
     setSelectedTrailId(null);
     setShowPrintModal(false);
@@ -291,10 +332,25 @@ export default function App() {
         showToast('In attesa del segnale GPS... Assicurati di essere all aperto.', 'warning');
         return;
       }
+      void ensureCompassPermission();
       calculateRoute({ lat: gpsData.lat, lng: gpsData.lng }, trail, 'navigating');
     },
-    [calculateRoute, gpsData, isMobile, showToast]
+    [calculateRoute, ensureCompassPermission, gpsData, isMobile, showToast]
   );
+
+  const handleInstallApp = useCallback(async () => {
+    if (canPromptInstall) {
+      const result = await promptInstall();
+      if (result === 'dismissed') {
+        showToast('Installazione annullata.', 'warning', 2200);
+      } else if (result === 'unsupported') {
+        setShowInstallModal(true);
+      }
+      return;
+    }
+
+    setShowInstallModal(true);
+  }, [canPromptInstall, promptInstall, showToast]);
 
   const handlePlanRouteFromGate = useCallback(
     (gate: TrailData) => {
@@ -441,7 +497,7 @@ export default function App() {
         navActive={isNavigating || isPlanning}
         showAllFeatures={showAllFeatures}
         followUser={followUser}
-        mapRotation={0}
+        mapRotation={navigationMapRotation}
         onManualDrag={() => setFollowUser(false)}
         zoomTrigger={zoomToSelection}
         pathZoomTrigger={zoomToPath}
@@ -506,35 +562,38 @@ export default function App() {
             onSelect={(trail) => handleSelectTrailId(trail.id, true)}
             openRequestKey={searchOpenRequestKey}
             onOpen={clearSelection}
+            onOpenChange={setIsSearchOpen}
           />
         </div>
       )}
 
-      <div
-        className="fixed top-4 z-[2000] pointer-events-none no-print compass-ui"
-        style={{ left: !isMobile && selectedTrail && !isNavigating && !showPrintModal ? 388 : 16 }}
-      >
+      {!isSearchOpen && (
         <div
-          className="gm-map-control"
+          className="fixed top-4 z-[2000] pointer-events-none no-print compass-ui"
+          style={{ left: !isMobile && selectedTrail && !isNavigating && !showPrintModal ? 388 : 16 }}
         >
-          <div className="relative w-full h-full">
-            <span className="absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-black text-red-500 tracking-tighter">N</span>
-            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white">S</span>
-            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-white">E</span>
-            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-white">W</span>
-            <div className="absolute inset-0 flex items-center justify-center opacity-30">
-              <div className="w-full h-[1px] bg-white absolute" />
-              <div className="h-full w-[1px] bg-white absolute" />
-              <div className="w-7 h-7 rounded-full border border-white absolute" />
-            </div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="relative w-full h-full">
-                <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-b-[6px] border-b-red-500" />
+          <div
+            className="gm-map-control"
+          >
+            <div className="relative w-full h-full">
+              <span className="absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-black text-red-500 tracking-tighter">N</span>
+              <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white">S</span>
+              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-white">E</span>
+              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-white">W</span>
+              <div className="absolute inset-0 flex items-center justify-center opacity-30">
+                <div className="w-full h-[1px] bg-white absolute" />
+                <div className="h-full w-[1px] bg-white absolute" />
+                <div className="w-7 h-7 rounded-full border border-white absolute" />
+              </div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="relative w-full h-full">
+                  <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-b-[6px] border-b-red-500" />
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {userLocation && isNavigating && (
         <button
@@ -560,6 +619,8 @@ export default function App() {
           }}
           onInfo={() => setShowInfoModal(true)}
           onHelp={() => setShowHelpModal(true)}
+          canInstallApp={isMobile && canInstall}
+          onInstallApp={handleInstallApp}
         />
       )}
 
@@ -637,6 +698,14 @@ export default function App() {
           title={selectedTrail.name}
         />
       )}
+
+      <InstallAppModal
+        isOpen={showInstallModal}
+        isIosManualInstall={isIosManualInstall}
+        canPromptInstall={canPromptInstall}
+        onClose={() => setShowInstallModal(false)}
+        onInstallNow={handleInstallApp}
+      />
 
       <InfoModal isOpen={showInfoModal} onClose={() => setShowInfoModal(false)} />
       <HelpModal isOpen={showHelpModal} onClose={() => setShowHelpModal(false)} />

@@ -8,9 +8,16 @@ interface SearchBarProps {
   onSelect: (trail: TrailData) => void;
   openRequestKey?: number;
   onOpen?: () => void;
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
-const SearchBar: React.FC<SearchBarProps> = ({ trails, onSelect, openRequestKey = 0, onOpen }) => {
+const SearchBar: React.FC<SearchBarProps> = ({
+  trails,
+  onSelect,
+  openRequestKey = 0,
+  onOpen,
+  onOpenChange,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -63,6 +70,10 @@ const SearchBar: React.FC<SearchBarProps> = ({ trails, onSelect, openRequestKey 
   }, [query]);
 
   useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
+
+  useEffect(() => {
     if (openRequestKey === 0) return;
     onOpen?.();
     setIsOpen(true);
@@ -95,8 +106,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ trails, onSelect, openRequestKey 
     <div
       ref={rootRef}
       className={cn(
-        'fixed top-4 right-4 z-[3300] flex flex-col items-end transition-all duration-200 no-print',
-        isOpen ? 'left-[4.75rem]' : 'w-[48px]'
+        'fixed top-4 z-[3300] flex flex-col transition-all duration-200 no-print',
+        isOpen ? 'left-4 right-4 items-stretch' : 'right-4 w-[48px] items-end'
       )}
     >
       <div
@@ -104,7 +115,6 @@ const SearchBar: React.FC<SearchBarProps> = ({ trails, onSelect, openRequestKey 
           'flex items-center overflow-hidden transition-all duration-200',
           isOpen ? 'gm-input-shell w-full' : 'w-[48px]'
         )}
-        style={isOpen ? { width: 'calc(100vw - 9.75rem)' } : undefined}
       >
         <button
           type="button"
@@ -153,12 +163,12 @@ const SearchBar: React.FC<SearchBarProps> = ({ trails, onSelect, openRequestKey 
       </div>
 
       {isOpen && results.length > 0 && (
-        <div className="gm-panel-elevated w-full mt-2 max-h-[40vh] overflow-y-auto overflow-x-hidden">
+        <div className="gm-panel-elevated w-full mt-2 max-h-[50vh] overflow-y-auto overflow-x-hidden">
           {results.map((trail, index) => (
             <button
               key={trail.id}
               onClick={() => handleSelect(trail)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left border-b border-[color:var(--gm-border-soft)] last:border-0 transition-colors hover:bg-[var(--gm-surface-soft)]"
+              className="w-full flex items-start gap-3 px-4 py-3 text-left border-b border-[color:var(--gm-border-soft)] last:border-0 transition-colors hover:bg-[var(--gm-surface-soft)]"
               style={highlightedIndex === index ? { background: 'color-mix(in srgb, var(--gm-accent) 10%, white)' } : undefined}
             >
               <div
@@ -167,9 +177,11 @@ const SearchBar: React.FC<SearchBarProps> = ({ trails, onSelect, openRequestKey 
               >
                 <MapPin className="w-4 h-4" />
               </div>
-              <div className="min-w-0">
-                <h4 className="text-sm font-semibold text-[var(--gm-text)] line-clamp-1">{trail.name}</h4>
-                <p className="text-xs text-[var(--gm-text-muted)] line-clamp-1">
+              <div className="min-w-0 flex-1">
+                <h4 className="text-sm font-semibold leading-5 text-[var(--gm-text)] whitespace-normal break-words">
+                  {trail.name}
+                </h4>
+                <p className="text-xs leading-5 text-[var(--gm-text-muted)] whitespace-normal break-words line-clamp-2">
                   {trail.description || 'Punto disponibile sulla mappa'}
                 </p>
               </div>

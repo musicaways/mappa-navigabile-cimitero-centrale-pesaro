@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, HelpCircle, Home, Info, Plus } from 'lucide-react';
+import { Download, Eye, EyeOff, HelpCircle, Home, Info, Plus } from 'lucide-react';
 
 interface QuickActionsFabProps {
   showAllFeatures: boolean;
@@ -7,6 +7,9 @@ interface QuickActionsFabProps {
   onResetView: () => void;
   onInfo: () => void;
   onHelp: () => void;
+  canInstallApp?: boolean;
+  onInstallApp?: () => void;
+  aspesHref?: string;
 }
 
 const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
@@ -15,6 +18,9 @@ const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
   onResetView,
   onInfo,
   onHelp,
+  canInstallApp = false,
+  onInstallApp,
+  aspesHref = 'https://www.aspes.it/servizi/servizi-cimiteriali/',
 }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -39,9 +45,15 @@ const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
   };
 
   return (
-    <div ref={rootRef} className="fixed right-4 top-20 z-[3200] flex flex-col items-end gap-3 no-print">
+    <div ref={rootRef} className="fixed right-4 bottom-4 z-[3200] flex flex-col items-end gap-3 no-print">
       {open && (
         <>
+          {canInstallApp && onInstallApp && (
+            <button onClick={() => runAction(onInstallApp)} className="gm-map-control-pill">
+              <Download className="w-4 h-4" />
+              Installa app
+            </button>
+          )}
           <button onClick={() => runAction(onToggleFeatures)} className="gm-map-control-pill">
             {showAllFeatures ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             {showAllFeatures ? 'Nascondi settori' : 'Mostra settori'}
@@ -64,6 +76,21 @@ const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
       <button onClick={() => setOpen((prev) => !prev)} className="gm-map-control" title="Azioni rapide">
         <Plus className={`w-5 h-5 transition-transform ${open ? 'rotate-45' : ''}`} />
       </button>
+
+      <a
+        href={aspesHref}
+        target="_blank"
+        rel="noreferrer"
+        className="gm-map-control"
+        title="ASPES Pesaro"
+        aria-label="Apri il sito ASPES"
+      >
+        <img
+          src="/icons/apple-touch-icon.png"
+          alt="ASPES"
+          className="w-7 h-7 rounded-full object-cover"
+        />
+      </a>
     </div>
   );
 };
