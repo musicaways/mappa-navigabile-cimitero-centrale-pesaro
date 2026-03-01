@@ -112,7 +112,7 @@ export default function App() {
 
   const isNavigating = routeMode === 'navigating';
   const isPlanning = routeMode === 'planning';
-  const { canInstall, canPromptInstall, isInstalled, isIosManualInstall, promptInstall } = useInstallPrompt(isMobile);
+  const { canInstall, canPromptInstall, isInstalled, isAndroidManualInstall, isIosManualInstall, promptInstall } = useInstallPrompt(isMobile);
   const navigationMapRotation = useNavigationMapRotation(isMobile && isNavigating && followUser, userLocation, navPath);
 
   const selectedTrail = useMemo(() => {
@@ -351,6 +351,12 @@ export default function App() {
 
     setShowInstallModal(true);
   }, [canPromptInstall, promptInstall, showToast]);
+
+  const restoreNavigationView = useCallback(() => {
+    if (!userLocation) return;
+    void ensureCompassPermission();
+    setFollowUser(true);
+  }, [ensureCompassPermission, userLocation]);
 
   const handlePlanRouteFromGate = useCallback(
     (gate: TrailData) => {
@@ -597,13 +603,13 @@ export default function App() {
 
       {userLocation && isNavigating && (
         <button
-          onClick={() => setFollowUser(true)}
+          onClick={restoreNavigationView}
           className={`fixed top-4 right-4 z-[2000] w-12 h-12 rounded-full border flex items-center justify-center transition-all no-print ${
             followUser
               ? 'bg-[var(--gm-accent)] border-[var(--gm-accent)] text-white shadow-[var(--gm-shadow-soft)] animate-pulse'
               : 'gm-map-control'
           }`}
-          title="Centra su posizione"
+          title="Ripristina posizione e orientamento"
         >
           <Target className="w-5 h-5" />
         </button>
@@ -701,6 +707,7 @@ export default function App() {
 
       <InstallAppModal
         isOpen={showInstallModal}
+        isAndroidManualInstall={isAndroidManualInstall}
         isIosManualInstall={isIosManualInstall}
         canPromptInstall={canPromptInstall}
         onClose={() => setShowInstallModal(false)}

@@ -3,6 +3,7 @@ import { Download, Share2, Smartphone, X } from 'lucide-react';
 
 interface InstallAppModalProps {
   isOpen: boolean;
+  isAndroidManualInstall: boolean;
   isIosManualInstall: boolean;
   canPromptInstall: boolean;
   onClose: () => void;
@@ -11,6 +12,7 @@ interface InstallAppModalProps {
 
 const InstallAppModal: React.FC<InstallAppModalProps> = ({
   isOpen,
+  isAndroidManualInstall,
   isIosManualInstall,
   canPromptInstall,
   onClose,
@@ -79,7 +81,34 @@ const InstallAppModal: React.FC<InstallAppModalProps> = ({
             </div>
           )}
 
-          {!canPromptInstall && !isIosManualInstall && (
+          {!canPromptInstall && isAndroidManualInstall && (
+            <div className="gm-card px-4 py-4 space-y-3">
+              <p className="text-sm leading-6 text-[var(--gm-text-muted)]">
+                Su Android il browser può non mostrare subito il prompt automatico. Puoi comunque installare l'app dal
+                menu del browser.
+              </p>
+              <div className="space-y-2 text-sm text-[var(--gm-text)]">
+                <div className="flex items-start gap-2">
+                  <span className="gm-chip-active shrink-0">1</span>
+                  <p>Apri il menu del browser in alto a destra.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="gm-chip-active shrink-0">2</span>
+                  <p>Seleziona <strong>Installa app</strong> oppure <strong>Aggiungi a schermata Home</strong>.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="gm-chip-active shrink-0">3</span>
+                  <p>Conferma per aggiungere l'app al telefono.</p>
+                </div>
+              </div>
+              <button onClick={onInstallNow} className="gm-button-secondary w-full">
+                <Download className="w-4 h-4" />
+                Riprova prompt automatico
+              </button>
+            </div>
+          )}
+
+          {!canPromptInstall && !isIosManualInstall && !isAndroidManualInstall && (
             <div className="gm-card px-4 py-4">
               <p className="text-sm leading-6 text-[var(--gm-text-muted)]">
                 Questo browser non espone un prompt di installazione diretto. Prova dal menu del browser con l'opzione

@@ -1,7 +1,35 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-export const useSmoothHeading = (rawHeading: number) => {
+interface SmoothHeadingOptions {
+  deadband?: number;
+  mediumThreshold?: number;
+  largeThreshold?: number;
+  alphaSmall?: number;
+  alphaMedium?: number;
+  alphaLarge?: number;
+}
+
+export const useSmoothHeading = (rawHeading: number, options: SmoothHeadingOptions = {}) => {
   const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360;
+  const {
+    deadband = 0.3,
+    mediumThreshold = 20,
+    largeThreshold = 55,
+    alphaSmall = 0.12,
+    alphaMedium = 0.18,
+    alphaLarge = 0.28,
+  } = options;
+  const config = useMemo(
+    () => ({
+      deadband,
+      mediumThreshold,
+      largeThreshold,
+      alphaSmall,
+      alphaMedium,
+      alphaLarge,
+    }),
+    [alphaLarge, alphaMedium, alphaSmall, deadband, largeThreshold, mediumThreshold]
+  );
   const [smooth, setSmooth] = useState(normalizeAngle(rawHeading));
   const currentHeadingRef = useRef(normalizeAngle(rawHeading));
   const targetHeadingRef = useRef(normalizeAngle(rawHeading));
@@ -16,7 +44,7 @@ export const useSmoothHeading = (rawHeading: number) => {
       while (diff > 180) diff -= 360;
 
       const absDiff = Math.abs(diff);
-      if (absDiff < 0.3) {
+      if (absDiff < config.deadband) {
         const settled = normalizeAngle(targetHeadingRef.current);
         currentHeadingRef.current = settled;
         setSmooth(settled);
@@ -24,7 +52,12 @@ export const useSmoothHeading = (rawHeading: number) => {
         return;
       }
 
-      const alpha = absDiff > 55 ? 0.28 : absDiff > 20 ? 0.18 : 0.12;
+      const alpha =
+        absDiff > config.largeThreshold
+          ? config.alphaLarge
+          : absDiff > config.mediumThreshold
+            ? config.alphaMedium
+            : config.alphaSmall;
       const nextHeading = normalizeAngle(currentHeadingRef.current + diff * alpha);
       currentHeadingRef.current = nextHeading;
       setSmooth(nextHeading);
@@ -41,7 +74,7 @@ export const useSmoothHeading = (rawHeading: number) => {
         rafRef.current = null;
       }
     };
-  }, [rawHeading]);
+  }, [config, rawHeading]);
 
   return smooth;
 };

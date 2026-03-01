@@ -17,6 +17,11 @@ const getIsIosSafari = () => {
   return isIos && isWebkit && !isOtherIosBrowser;
 };
 
+const getIsAndroidBrowser = () => {
+  const ua = window.navigator.userAgent;
+  return /Android/i.test(ua);
+};
+
 export const useInstallPrompt = (enabled: boolean) => {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
@@ -60,8 +65,15 @@ export const useInstallPrompt = (enabled: boolean) => {
     return getIsIosSafari();
   }, [enabled, isInstalled]);
 
+  const isAndroidManualInstall = useMemo(() => {
+    if (typeof window === 'undefined' || !enabled || isInstalled) {
+      return false;
+    }
+    return getIsAndroidBrowser();
+  }, [enabled, isInstalled]);
+
   const canPromptInstall = enabled && !isInstalled && deferredPrompt !== null;
-  const canInstall = canPromptInstall || isIosManualInstall;
+  const canInstall = canPromptInstall || isIosManualInstall || isAndroidManualInstall;
 
   const promptInstall = useCallback(async (): Promise<'accepted' | 'dismissed' | 'unsupported'> => {
     if (!enabled || isInstalled) return 'unsupported';
@@ -80,6 +92,7 @@ export const useInstallPrompt = (enabled: boolean) => {
     canInstall,
     canPromptInstall,
     isInstalled,
+    isAndroidManualInstall,
     isIosManualInstall,
     promptInstall,
   };

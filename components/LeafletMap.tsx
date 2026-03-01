@@ -682,6 +682,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   useEffect(() => {
     if (mapRef.current) {
         mapRef.current.invalidateSize({ animate: false });
+        tileLayerRef.current?.redraw();
     }
   }, [followUser, isMobile, navActive, effectiveDisplayRotation, printMode]);
 
@@ -795,7 +796,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         const el = userMarkerRef.current.getElement()?.querySelector('.user-location-pointer') as HTMLElement;
         if (el) {
             el.style.transform = `rotate(${heading}deg)`;
-            el.style.transition = 'transform 0.12s cubic-bezier(0.2, 0.8, 0.2, 1)';
+            el.style.transition = 'transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)';
         }
     }
 
@@ -805,6 +806,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         const movedEnough = !lastPan || Math.abs(lat - lastPan.lat) > 0.000015 || Math.abs(lng - lastPan.lng) > 0.000015;
         if (!lastPan || movedEnough || now - lastPan.at > 220) {
             mapRef.current.panTo([lat, lng], { animate: false });
+            tileLayerRef.current?.redraw();
             lastAutoPanRef.current = { lat, lng, at: now };
         }
     } else {
@@ -1178,8 +1180,8 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         <div 
             ref={containerRef}
             style={{ 
-                width: printMode ? '100%' : '150vmax', 
-                height: printMode ? '100%' : '150vmax',
+                width: printMode ? '100%' : effectiveDisplayRotation !== 0 ? '220vmax' : '150vmax', 
+                height: printMode ? '100%' : effectiveDisplayRotation !== 0 ? '220vmax' : '150vmax',
                 position: 'absolute',
                 top: printMode ? '0' : '50%',
                 left: printMode ? '0' : '50%',

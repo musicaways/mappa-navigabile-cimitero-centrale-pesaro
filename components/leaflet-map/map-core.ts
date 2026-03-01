@@ -73,6 +73,11 @@ export const createBaseMap = (
   const tileLayer = L.tileLayer(getTileLayerUrl(isSatelliteView), {
     maxZoom: 22,
     maxNativeZoom: 20,
+    keepBuffer: 8,
+    updateWhenIdle: false,
+    updateWhenZooming: false,
+    updateInterval: 120,
+    crossOrigin: true,
   }).addTo(map);
 
   return { map, tileLayer };

@@ -22,10 +22,11 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
   const lastCompassUpdateMsRef = useRef(0);
   const compassWatchdogRef = useRef<number | null>(null);
   const compassAttachedRef = useRef(false);
+  const lastAcceptedHeadingRef = useRef<number | null>(null);
 
   const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
     const now = performance.now();
-    if (now - lastCompassUpdateMsRef.current < 33) {
+    if (now - lastCompassUpdateMsRef.current < 55) {
       return;
     }
 
@@ -55,7 +56,23 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
 
     const screenAngle = window.screen.orientation?.angle ?? 0;
     const correctedHeading = normalizeHeading(heading - screenAngle);
+    const previousHeading = lastAcceptedHeadingRef.current;
+    if (previousHeading !== null) {
+      let diff = correctedHeading - previousHeading;
+      while (diff < -180) diff += 360;
+      while (diff > 180) diff -= 360;
+
+      const absDiff = Math.abs(diff);
+      if (absDiff < 2.4) {
+        return;
+      }
+      if (absDiff > 42 && now - lastCompassUpdateMsRef.current < 180) {
+        return;
+      }
+    }
+
     lastCompassUpdateMsRef.current = now;
+    lastAcceptedHeadingRef.current = correctedHeading;
     setMagneticHeading(correctedHeading);
   }, []);
 
@@ -88,6 +105,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
     });
     compassAttachedRef.current = true;
     lastCompassUpdateMsRef.current = performance.now();
+    lastAcceptedHeadingRef.current = null;
     return true;
   }, [detachCompassListeners, handleOrientation]);
 
@@ -236,14 +254,21 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
   }, [attachCompassListeners, compassEnabled]);
 
   const activeRawHeading = useMemo(() => {
-    const isMoving = !!gpsData?.speed && gpsData.speed > 1.0;
+    const isMoving = !!gpsData?.speed && gpsData.speed > 1.3;
     if (isMoving && gpsData?.heading !== null && gpsData?.heading !== undefined && !Number.isNaN(gpsData.heading)) {
       return gpsData.heading;
     }
     return magneticHeading;
   }, [gpsData, magneticHeading]);
 
-  const smoothedHeading = useSmoothHeading(activeRawHeading);
+  const smoothedHeading = useSmoothHeading(activeRawHeading, {
+    deadband: 1.6,
+    mediumThreshold: 16,
+    largeThreshold: 42,
+    alphaSmall: 0.08,
+    alphaMedium: 0.12,
+    alphaLarge: 0.18,
+  });
   const smoothedPosition = useSmoothPosition(gpsData ? { lat: gpsData.lat, lng: gpsData.lng } : null);
 
   const userLocation = useMemo(() => {
