@@ -3,6 +3,8 @@ import { Feature, Geometry, Position } from 'geojson';
 
 export const DEFAULT_CENTER: L.LatLngTuple = [43.9022, 12.9158];
 export const DEFAULT_ZOOM = 17;
+export const MAX_MAP_ZOOM = 19;
+export const MAX_NATIVE_TILE_ZOOM = 19;
 
 export const CEMETERY_BOUNDS = L.latLngBounds([43.85, 12.85], [43.95, 13.0]);
 
@@ -47,6 +49,7 @@ export const createBaseMap = (
     zoomSnap: 0.1,
     zoomDelta: 0.5,
     minZoom: 15,
+    maxZoom: MAX_MAP_ZOOM,
     maxBounds: CEMETERY_BOUNDS,
     maxBoundsViscosity: 0.5,
     preferCanvas: false,
@@ -71,8 +74,8 @@ export const createBaseMap = (
   }
 
   const tileLayer = L.tileLayer(getTileLayerUrl(isSatelliteView), {
-    maxZoom: 22,
-    maxNativeZoom: 20,
+    maxZoom: MAX_MAP_ZOOM,
+    maxNativeZoom: MAX_NATIVE_TILE_ZOOM,
   }).addTo(map);
 
   return { map, tileLayer };

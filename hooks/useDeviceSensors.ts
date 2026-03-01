@@ -12,6 +12,22 @@ interface UseDeviceSensorsResult {
 }
 
 const normalizeHeading = (heading: number) => ((heading % 360) + 360) % 360;
+const HEADING_SAMPLE_WINDOW = 5;
+
+const getCircularMean = (values: number[]) => {
+  if (values.length === 0) return 0;
+  const vector = values.reduce(
+    (acc, value) => {
+      const radians = (value * Math.PI) / 180;
+      acc.sin += Math.sin(radians);
+      acc.cos += Math.cos(radians);
+      return acc;
+    },
+    { sin: 0, cos: 0 }
+  );
+
+  return normalizeHeading((Math.atan2(vector.sin / values.length, vector.cos / values.length) * 180) / Math.PI);
+};
 
 export const useDeviceSensors = (): UseDeviceSensorsResult => {
   const isMobile = isMobileDevice();
@@ -23,10 +39,11 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
   const compassWatchdogRef = useRef<number | null>(null);
   const compassAttachedRef = useRef(false);
   const lastAcceptedHeadingRef = useRef<number | null>(null);
+  const headingSamplesRef = useRef<number[]>([]);
 
   const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
     const now = performance.now();
-    if (now - lastCompassUpdateMsRef.current < 75) {
+    if (now - lastCompassUpdateMsRef.current < 90) {
       return;
     }
 
@@ -63,7 +80,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
       while (diff > 180) diff -= 360;
 
       const absDiff = Math.abs(diff);
-      if (absDiff < 4) {
+      if (absDiff < 5) {
         return;
       }
       if (absDiff > 60 && now - lastCompassUpdateMsRef.current < 220) {
@@ -73,7 +90,8 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
 
     lastCompassUpdateMsRef.current = now;
     lastAcceptedHeadingRef.current = correctedHeading;
-    setMagneticHeading(correctedHeading);
+    headingSamplesRef.current = [...headingSamplesRef.current.slice(-(HEADING_SAMPLE_WINDOW - 1)), correctedHeading];
+    setMagneticHeading(getCircularMean(headingSamplesRef.current));
   }, []);
 
   const detachCompassListeners = useCallback(() => {
@@ -106,6 +124,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
     compassAttachedRef.current = true;
     lastCompassUpdateMsRef.current = performance.now();
     lastAcceptedHeadingRef.current = null;
+    headingSamplesRef.current = [];
     return true;
   }, [detachCompassListeners, handleOrientation]);
 
@@ -257,7 +276,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
     const hasReliableCompass = compassEnabled && lastAcceptedHeadingRef.current !== null;
     const canUseGpsHeading =
       !!gpsData?.speed &&
-      gpsData.speed > 2.2 &&
+      gpsData.speed > 2.8 &&
       (gpsData.accuracy ?? Number.POSITIVE_INFINITY) < 18 &&
       gpsData?.heading !== null &&
       gpsData?.heading !== undefined &&
@@ -270,12 +289,12 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
   }, [compassEnabled, gpsData, magneticHeading]);
 
   const smoothedHeading = useSmoothHeading(activeRawHeading, {
-    deadband: 3.6,
-    mediumThreshold: 22,
-    largeThreshold: 58,
-    alphaSmall: 0.05,
-    alphaMedium: 0.08,
-    alphaLarge: 0.12,
+    deadband: 5,
+    mediumThreshold: 28,
+    largeThreshold: 70,
+    alphaSmall: 0.04,
+    alphaMedium: 0.06,
+    alphaLarge: 0.1,
   });
   const smoothedPosition = useSmoothPosition(gpsData ? { lat: gpsData.lat, lng: gpsData.lng } : null);
 

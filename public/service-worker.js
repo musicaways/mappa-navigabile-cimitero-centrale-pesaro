@@ -1,5 +1,5 @@
 
-const SW_VERSION = 'v9';
+const SW_VERSION = 'v10';
 const APP_CACHE = `pesaro-cimitero-app-${SW_VERSION}`;
 const TILES_CACHE = `map-tiles-${SW_VERSION}`;
 const DATA_CACHE = `map-data-${SW_VERSION}`;

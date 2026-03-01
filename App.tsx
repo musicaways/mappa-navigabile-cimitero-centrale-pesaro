@@ -113,7 +113,7 @@ export default function App() {
   const isNavigating = routeMode === 'navigating';
   const isPlanning = routeMode === 'planning';
   const { canInstall, canPromptInstall, isInstalled, isAndroidManualInstall, isIosManualInstall, promptInstall } = useInstallPrompt(isMobile);
-  const navigationMapRotation = useNavigationMapRotation(isMobile && isNavigating && followUser, userLocation, navPath);
+  const navigationMapRotation = useNavigationMapRotation(isMobile && isNavigating, userLocation, navPath);
 
   const selectedTrail = useMemo(() => {
     if (!selectedTrailId || !data) return null;

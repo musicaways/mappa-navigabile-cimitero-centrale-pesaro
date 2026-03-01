@@ -8,6 +8,7 @@ import {
   createBaseMap,
   DEFAULT_CENTER,
   DEFAULT_ZOOM,
+  MAX_MAP_ZOOM,
   getFeatureMarkerTarget,
   getTileLayerUrl,
   toLatLngTuple,
@@ -814,7 +815,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         const el = userMarkerRef.current.getElement()?.querySelector('.user-location-pointer') as HTMLElement;
         if (el) {
             el.style.transform = `rotate(${heading}deg)`;
-            el.style.transition = 'transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)';
+            el.style.transition = 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)';
         }
     }
 
@@ -1175,14 +1176,14 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     if (feature.geometry.type === 'Point') {
         mapRef.current.setView(
           toLatLngTuple(feature.geometry.coordinates),
-          isMobile ? 17.8 : 19,
+          isMobile ? 17.6 : MAX_MAP_ZOOM,
           { animate: true }
         );
     } else {
         const layer = L.geoJSON(feature);
         mapRef.current.fitBounds(layer.getBounds(), {
           padding: [50, 50],
-          maxZoom: isMobile ? 17.8 : 19,
+          maxZoom: isMobile ? 17.6 : MAX_MAP_ZOOM,
         });
     }
   }, [selectedTrailId, zoomTrigger, data, getFeatureById, isMobile]);
