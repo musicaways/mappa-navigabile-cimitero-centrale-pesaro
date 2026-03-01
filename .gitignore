@@ -25,3 +25,5 @@ dist-ssr
 
 # Local backup artifacts
 mappa-navigabile-cimitero-centrale-pesaro-v1.zip
+
+.vercel
