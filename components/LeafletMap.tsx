@@ -682,7 +682,6 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   useEffect(() => {
     if (mapRef.current) {
         mapRef.current.invalidateSize({ animate: false });
-        tileLayerRef.current?.redraw();
     }
   }, [followUser, isMobile, navActive, effectiveDisplayRotation, printMode]);
 
@@ -796,7 +795,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         const el = userMarkerRef.current.getElement()?.querySelector('.user-location-pointer') as HTMLElement;
         if (el) {
             el.style.transform = `rotate(${heading}deg)`;
-            el.style.transition = 'transform 0.22s cubic-bezier(0.22, 1, 0.36, 1)';
+            el.style.transition = 'transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)';
         }
     }
 
@@ -806,7 +805,6 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         const movedEnough = !lastPan || Math.abs(lat - lastPan.lat) > 0.000015 || Math.abs(lng - lastPan.lng) > 0.000015;
         if (!lastPan || movedEnough || now - lastPan.at > 220) {
             mapRef.current.panTo([lat, lng], { animate: false });
-            tileLayerRef.current?.redraw();
             lastAutoPanRef.current = { lat, lng, at: now };
         }
     } else {

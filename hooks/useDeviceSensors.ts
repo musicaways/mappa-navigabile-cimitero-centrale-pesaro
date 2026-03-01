@@ -26,7 +26,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
 
   const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
     const now = performance.now();
-    if (now - lastCompassUpdateMsRef.current < 55) {
+    if (now - lastCompassUpdateMsRef.current < 60) {
       return;
     }
 
@@ -63,10 +63,10 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
       while (diff > 180) diff -= 360;
 
       const absDiff = Math.abs(diff);
-      if (absDiff < 2.4) {
+      if (absDiff < 3) {
         return;
       }
-      if (absDiff > 42 && now - lastCompassUpdateMsRef.current < 180) {
+      if (absDiff > 70 && now - lastCompassUpdateMsRef.current < 150) {
         return;
       }
     }
@@ -254,7 +254,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
   }, [attachCompassListeners, compassEnabled]);
 
   const activeRawHeading = useMemo(() => {
-    const isMoving = !!gpsData?.speed && gpsData.speed > 1.3;
+    const isMoving = !!gpsData?.speed && gpsData.speed > 1.1;
     if (isMoving && gpsData?.heading !== null && gpsData?.heading !== undefined && !Number.isNaN(gpsData.heading)) {
       return gpsData.heading;
     }
@@ -262,12 +262,12 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
   }, [gpsData, magneticHeading]);
 
   const smoothedHeading = useSmoothHeading(activeRawHeading, {
-    deadband: 1.6,
-    mediumThreshold: 16,
-    largeThreshold: 42,
-    alphaSmall: 0.08,
-    alphaMedium: 0.12,
-    alphaLarge: 0.18,
+    deadband: 2.4,
+    mediumThreshold: 18,
+    largeThreshold: 52,
+    alphaSmall: 0.07,
+    alphaMedium: 0.1,
+    alphaLarge: 0.16,
   });
   const smoothedPosition = useSmoothPosition(gpsData ? { lat: gpsData.lat, lng: gpsData.lng } : null);
 

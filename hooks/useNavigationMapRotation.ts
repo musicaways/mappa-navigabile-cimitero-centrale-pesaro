@@ -5,13 +5,6 @@ import { useSmoothHeading } from './useSmoothedMotion';
 
 const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360;
 
-const getShortestAngleDelta = (from: number, to: number) => {
-  let diff = normalizeAngle(to) - normalizeAngle(from);
-  while (diff < -180) diff += 360;
-  while (diff > 180) diff -= 360;
-  return diff;
-};
-
 const calculateBearing = (from: Coordinates, to: Coordinates): number => {
   const phi1 = (from.lat * Math.PI) / 180;
   const phi2 = (to.lat * Math.PI) / 180;
@@ -143,34 +136,16 @@ export const useNavigationMapRotation = (
     }
 
     const routeBearing = getRouteBearing(navPath, userLocation);
-    const actualHeading = userLocation.heading ?? null;
-
-    if (routeBearing === null) {
-      return actualHeading ?? 0;
-    }
-    if (actualHeading === null) {
-      return routeBearing;
-    }
-
-    const delta = getShortestAngleDelta(actualHeading, routeBearing);
-    const absDelta = Math.abs(delta);
-
-    if (absDelta > 80) {
-      return actualHeading;
-    }
-    if (absDelta > 35) {
-      return normalizeAngle(actualHeading + delta * 0.42);
-    }
-    return normalizeAngle(actualHeading + delta * 0.68);
+    return routeBearing ?? userLocation.heading ?? 0;
   }, [enabled, navPath, userLocation]);
 
   const smoothedBearing = useSmoothHeading(rawBearing, {
-    deadband: 1.2,
-    mediumThreshold: 14,
-    largeThreshold: 40,
-    alphaSmall: 0.09,
-    alphaMedium: 0.14,
-    alphaLarge: 0.2,
+    deadband: 2,
+    mediumThreshold: 18,
+    largeThreshold: 48,
+    alphaSmall: 0.08,
+    alphaMedium: 0.12,
+    alphaLarge: 0.18,
   });
   return enabled ? smoothedBearing : 0;
 };
