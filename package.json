@@ -13,6 +13,7 @@
     "@tmcw/togeojson": "5.8.1",
     "clsx": "2.1.1",
     "geojson": "0.5.0",
+    "html2canvas": "^1.4.1",
     "leaflet": "1.9.4",
     "lucide-react": "0.294.0",
     "qrcode": "^1.5.4",

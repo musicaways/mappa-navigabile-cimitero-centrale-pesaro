@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Download, ExternalLink, Eye, EyeOff, HelpCircle, Home, Info, Plus } from 'lucide-react';
+import { Download, ExternalLink, Eye, EyeOff, HelpCircle, Home, Info, Layers, Plus } from 'lucide-react';
 
 interface QuickActionsFabProps {
   showAllFeatures: boolean;
@@ -10,6 +10,8 @@ interface QuickActionsFabProps {
   canInstallApp?: boolean;
   onInstallApp?: () => void;
   behindBottomSheet?: boolean;
+  showServices?: boolean;
+  onToggleServices?: () => void;
 }
 
 const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
@@ -21,6 +23,8 @@ const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
   canInstallApp = false,
   onInstallApp,
   behindBottomSheet = false,
+  showServices = false,
+  onToggleServices,
 }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -67,6 +71,12 @@ const QuickActionsFab: React.FC<QuickActionsFabProps> = ({
             <ExternalLink className="w-4 h-4" />
             Sito ASPES
           </a>
+          {onToggleServices && (
+            <button onClick={() => runAction(onToggleServices)} className="gm-map-control-pill">
+              <Layers className="w-4 h-4" />
+              {showServices ? 'Nascondi servizi' : 'Servizi cimitero'}
+            </button>
+          )}
           <button onClick={() => runAction(onToggleFeatures)} className="gm-map-control-pill">
             {showAllFeatures ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             {showAllFeatures ? 'Nascondi settori' : 'Mostra settori'}

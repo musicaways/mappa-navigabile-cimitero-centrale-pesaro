@@ -28,7 +28,8 @@ import { useFavorites } from './hooks/useFavorites';
 import { useOpeningHours } from './hooks/useOpeningHours';
 import { useVoiceGuidance } from './hooks/useVoiceGuidance';
 import { parseDeepLink } from './services/deeplink';
-import { Coordinates, TrailData } from './types';
+import { computeTurnInstructions, getNextInstruction } from './services/turnInstructions';
+import { Coordinates, TurnInstruction, TrailData } from './types';
 import { calculateDistance, computePathDistance, distToPath } from './utils';
 
 const MAP_ID = '1dzlxUTK3bz-7kChq1HASlXEpn6t5uQ8';
@@ -158,6 +159,9 @@ export default function App() {
   const [multiStopQueue, setMultiStopQueue] = useState<TrailData[]>([]);
   const [multiStopSegmentPaths, setMultiStopSegmentPaths] = useState<import('./types').Coordinates[][]>([]);
   const [multiStopSortedStops, setMultiStopSortedStops] = useState<TrailData[]>([]);
+  const [turnInstructions, setTurnInstructions] = useState<TurnInstruction[]>([]);
+  const [showServices, setShowServices] = useState(false);
+  const [maintenanceAlerts, setMaintenanceAlerts] = useState<{ id: string; title: string; description: string; severity: 'info' | 'warning' }[]>([]);
   const routeRequestRef = useRef(0);
   const arrivedRef = useRef(false);
   const rerouteOffTrackSinceRef = useRef<number | null>(null);
@@ -223,6 +227,18 @@ export default function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
+  }, []);
+
+  // Load maintenance alerts on startup
+  useEffect(() => {
+    fetch('/data/maintenance.json')
+      .then((r) => r.json())
+      .then((json) => {
+        if (Array.isArray(json.alerts) && json.alerts.length > 0) {
+          setMaintenanceAlerts(json.alerts);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -411,6 +427,7 @@ export default function App() {
     setMultiStopQueue([]);
     setMultiStopSegmentPaths([]); setMultiStopSortedStops([]);
     setSelectedPrintGate(null);
+    setTurnInstructions([]);
   }, []);
 
   const handleSelectTrailId = useCallback(
@@ -457,6 +474,11 @@ export default function App() {
         rerouteOffTrackSinceRef.current = null;
         setSelectedTrailId(trail.id);
         dispatchNav({ type: 'ROUTE_READY', path: calculatedPath, destination: targetCoords, mode });
+        if (mode === 'navigating') {
+          setTurnInstructions(computeTurnInstructions(calculatedPath));
+        } else {
+          setTurnInstructions([]);
+        }
 
         if (mode === 'planning') {
           window.setTimeout(() => setZoomToPath((prev) => prev + 1), 100);
@@ -713,6 +735,32 @@ export default function App() {
     }
   }, [isCalculatingPath, navPath, printInColor, showToast]);
 
+  const exportMapImage = useCallback(async () => {
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const sandboxEl = document.querySelector<HTMLElement>('.print-sandbox-container');
+      if (!sandboxEl) {
+        showToast('Prepara prima il percorso per la stampa.', 'warning');
+        return;
+      }
+      const canvas = await html2canvas(sandboxEl, {
+        useCORS: true,
+        allowTaint: true,
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+      const link = document.createElement('a');
+      link.download = `percorso-${selectedTrail?.name?.replace(/\s+/g, '-') ?? 'cimitero'}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      showToast('Immagine salvata.', 'info', 2500);
+    } catch (err) {
+      console.error('Export image failed', err);
+      showToast('Errore durante il salvataggio dell\'immagine.', 'error');
+    }
+  }, [selectedTrail, showToast]);
+
   const distanceToDest = useMemo(() => {
     if (isNavigating && userLocation && navDestination) {
       return calculateDistance(userLocation.lat, userLocation.lng, navDestination.lat, navDestination.lng);
@@ -729,6 +777,21 @@ export default function App() {
 
     return 0;
   }, [isNavigating, isPlanning, navDestination, navPath, userLocation]);
+
+  // Real walking speed (m/s) — EWA of GPS speed, fallback 4 km/h = 1.111 m/s
+  const walkingSpeedMs = useMemo(() => {
+    const speed = gpsData?.speed;
+    if (isNavigating && speed !== null && speed !== undefined && speed > 0.3) {
+      return Math.max(0.5, Math.min(3, speed)); // clamp 0.5–3 m/s
+    }
+    return 4000 / 3600; // default 4 km/h
+  }, [isNavigating, gpsData?.speed]);
+
+  // Next turn instruction based on current position
+  const nextInstruction = useMemo(() => {
+    if (!isNavigating || turnInstructions.length === 0 || !userLocation) return null;
+    return getNextInstruction(turnInstructions, userLocation.lat, userLocation.lng);
+  }, [isNavigating, turnInstructions, userLocation]);
 
   const printDistanceLabel = useMemo(() => {
     if (navPathDistance <= 0) return '--';
@@ -895,6 +958,7 @@ export default function App() {
         resetViewTrigger={resetMapTrigger}
         liveStopMarkers={isPlanning && isMultiStopPrint ? printStopMarkers : []}
         queuePreviewMarkers={queuePreviewMarkers}
+        showServices={showServices}
       />
 
       {isOffline && (
@@ -924,6 +988,28 @@ export default function App() {
         </div>
       )}
 
+      {/* Maintenance alerts banner */}
+      {maintenanceAlerts.length > 0 && !isNavigating && (
+        <div className="fixed top-14 left-4 right-4 z-[4500] space-y-1 no-print">
+          {maintenanceAlerts.map((alert) => (
+            <div
+              key={alert.id}
+              className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-start gap-2 shadow-[var(--gm-shadow)] ${
+                alert.severity === 'warning'
+                  ? 'bg-[#fbbc04] text-[#202124]'
+                  : 'bg-white text-[var(--gm-text)] border border-[color:var(--gm-border)]'
+              }`}
+            >
+              <span className="shrink-0">{alert.severity === 'warning' ? '⚠️' : 'ℹ️'}</span>
+              <div>
+                <p className="font-bold">{alert.title}</p>
+                {alert.description && <p className="font-normal opacity-80 mt-0.5">{alert.description}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {appToast && (
         <div
           key={appToast.id}
@@ -950,6 +1036,8 @@ export default function App() {
           destinationName={selectedTrail?.name || 'Destinazione'}
           voiceEnabled={voiceEnabled}
           onToggleVoice={toggleVoice}
+          nextInstruction={nextInstruction}
+          walkingSpeedMs={walkingSpeedMs}
         />
       </div>
 
@@ -1047,6 +1135,8 @@ export default function App() {
           canInstallApp={isMobile && canInstall}
           onInstallApp={handleInstallApp}
           behindBottomSheet={isMobile && !!selectedTrail && !showPrintModal}
+          showServices={showServices}
+          onToggleServices={() => setShowServices((prev) => !prev)}
         />
       )}
 
@@ -1122,6 +1212,7 @@ export default function App() {
           printInColor={printInColor}
           onTogglePrintColorMode={() => setPrintInColor((prev) => !prev)}
           onPrepareAndPrint={handlePrepareAndPrint}
+          onExportImage={exportMapImage}
           multiStopQueue={multiStopQueue.filter(t => t.id !== selectedTrail.id)}
           onRemoveStop={removeMultiStop}
           sortedStops={multiStopSortedStops}

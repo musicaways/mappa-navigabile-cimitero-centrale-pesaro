@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ListOrdered, Loader2, MapPin, Palette, Printer, X } from 'lucide-react';
+import { Download, ListOrdered, Loader2, MapPin, Palette, Printer, X } from 'lucide-react';
 import { TrailData } from '../types';
 
 interface PrintModalProps {
@@ -14,6 +14,7 @@ interface PrintModalProps {
   printInColor: boolean;
   onTogglePrintColorMode: () => void;
   onPrepareAndPrint: () => Promise<void>;
+  onExportImage?: () => Promise<void>;
   multiStopQueue?: TrailData[];
   onRemoveStop?: (id: string) => void;
   // Post-calculation sorted data
@@ -37,6 +38,7 @@ const PrintModal: React.FC<PrintModalProps> = ({
   printInColor,
   onTogglePrintColorMode,
   onPrepareAndPrint,
+  onExportImage,
   multiStopQueue = [],
   onRemoveStop,
   sortedStops = [],
@@ -47,6 +49,7 @@ const PrintModal: React.FC<PrintModalProps> = ({
     : '';
   const [selectedGateId, setSelectedGateId] = useState<string | null>(null);
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
+  const [isExportingImage, setIsExportingImage] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -205,18 +208,34 @@ const PrintModal: React.FC<PrintModalProps> = ({
           )}
         </div>
 
-        <div className="px-4 py-3 border-t border-[color:var(--gm-border)] bg-[var(--gm-surface-soft)] flex gap-2">
-          <button onClick={onClose} className="gm-button-secondary">
-            Annulla
-          </button>
-          <button
-            onClick={handlePrint}
-            disabled={!hasPath || isCalculating || isPreparingPrint}
-            className="gm-button-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isPreparingPrint ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-            {isPreparingPrint ? 'Preparazione stampa...' : 'Stampa ora'}
-          </button>
+        <div className="px-4 py-3 border-t border-[color:var(--gm-border)] bg-[var(--gm-surface-soft)] flex flex-col gap-2">
+          {onExportImage && hasPath && !isCalculating && (
+            <button
+              onClick={async () => {
+                if (isExportingImage) return;
+                setIsExportingImage(true);
+                try { await onExportImage(); } finally { setIsExportingImage(false); }
+              }}
+              disabled={isExportingImage}
+              className="gm-button-secondary w-full disabled:opacity-50"
+            >
+              {isExportingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {isExportingImage ? 'Generazione immagine...' : 'Salva immagine percorso'}
+            </button>
+          )}
+          <div className="flex gap-2">
+            <button onClick={onClose} className="gm-button-secondary">
+              Annulla
+            </button>
+            <button
+              onClick={handlePrint}
+              disabled={!hasPath || isCalculating || isPreparingPrint}
+              className="gm-button-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isPreparingPrint ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+              {isPreparingPrint ? 'Preparazione stampa...' : 'Stampa ora'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,0 +1,18 @@
+{
+  "fountains": [
+    { "id": "fount-1", "lat": 43.9032, "lng": 12.9148, "name": "Fontanella ingresso principale" },
+    { "id": "fount-2", "lat": 43.9018, "lng": 12.9165, "name": "Fontanella settore B" },
+    { "id": "fount-3", "lat": 43.9028, "lng": 12.9172, "name": "Fontanella settore C" }
+  ],
+  "toilets": [
+    { "id": "toilet-1", "lat": 43.9039, "lng": 12.9155, "name": "Servizi igienici - Ingresso" }
+  ],
+  "trash": [
+    { "id": "trash-1", "lat": 43.9035, "lng": 12.9150, "name": "Cestino - Vialetto principale" },
+    { "id": "trash-2", "lat": 43.9020, "lng": 12.9160, "name": "Cestino - Settore centrale" },
+    { "id": "trash-3", "lat": 43.9025, "lng": 12.9170, "name": "Cestino - Settore est" }
+  ],
+  "info": [
+    { "id": "info-1", "lat": 43.9039, "lng": 12.9155, "name": "Portineria - Punto informativo" }
+  ]
+}

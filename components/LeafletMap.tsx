@@ -57,6 +57,7 @@ interface LeafletMapProps {
   /** Queued multi-stop destinations shown on the main map before route calculation */
   queuePreviewMarkers?: Array<{ lat: number; lng: number; step: number }>;
   resetViewTrigger?: number;
+  showServices?: boolean;
 }
 
 interface MapViewSnapshot {
@@ -89,6 +90,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   liveStopMarkers = [],
   queuePreviewMarkers = [],
   resetViewTrigger = 0,
+  showServices = false,
 }) => {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1174,6 +1176,46 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
       queuePreviewMarkerRefs.current.push(marker);
     });
   }, [printMode, queuePreviewMarkers, layersReady]);
+
+  // SERVICE MARKERS — fontanelle, bagni, cestini, info
+  const serviceMarkersRef = useRef<L.Marker[]>([]);
+  useEffect(() => {
+    serviceMarkersRef.current.forEach((m) => m.remove());
+    serviceMarkersRef.current = [];
+    if (!mapRef.current || !layersReady || !showServices || printMode) return;
+
+    interface ServicePoint { id: string; lat: number; lng: number; name: string; }
+    const configs: Array<{ key: string; emoji: string; color: string }> = [
+      { key: 'fountains', emoji: '💧', color: '#2563eb' },
+      { key: 'toilets',   emoji: '🚻', color: '#7c3aed' },
+      { key: 'trash',     emoji: '🗑️', color: '#6b7280' },
+      { key: 'info',      emoji: 'ℹ️', color: '#0891b2' },
+    ];
+
+    fetch('/data/services.json')
+      .then((r) => r.json())
+      .then((data: Record<string, ServicePoint[]>) => {
+        configs.forEach(({ key, emoji, color }) => {
+          (data[key] ?? []).forEach((p) => {
+            const icon = L.divIcon({
+              className: 'bg-transparent',
+              html: `<div style="width:28px;height:28px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.3)">${emoji}</div>`,
+              iconSize: [28, 28], iconAnchor: [14, 14],
+            });
+            const marker = L.marker([p.lat, p.lng], { icon, zIndexOffset: 900, interactive: true });
+            marker.bindTooltip(p.name, { direction: 'top', offset: [0, -14] });
+            if (mapRef.current) marker.addTo(mapRef.current);
+            serviceMarkersRef.current.push(marker);
+          });
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      serviceMarkersRef.current.forEach((m) => m.remove());
+      serviceMarkersRef.current = [];
+    };
+  }, [showServices, layersReady, printMode]);
 
   useEffect(() => {
     if (!mapRef.current || !layersReady || pathZoomTrigger <= 0) return;

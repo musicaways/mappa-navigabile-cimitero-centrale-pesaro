@@ -13,7 +13,6 @@ const SATELLITE_SUBDOMAIN = (x: number, y: number, z: number): string =>
   `https://mt${(x + y) % 4}.google.com/vt/lyrs=s&x=${x}&y=${y}&z=${z}`;
 
 export const SATELLITE_TILE_URL = 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
-export const OSM_FALLBACK_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 // 1x1 neutral grey tile shown when a tile fails to load
 const GREY_TILE_DATA_URI =
