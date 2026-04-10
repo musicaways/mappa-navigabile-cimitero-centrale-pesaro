@@ -12,7 +12,15 @@ interface UseDeviceSensorsResult {
 }
 
 const normalizeHeading = (heading: number) => ((heading % 360) + 360) % 360;
-const HEADING_SAMPLE_WINDOW = 7;
+const HEADING_SAMPLE_WINDOW = 12; // larger window = smoother compass
+
+const blendCircularHeadings = (h1: number, h2: number, w1: number): number => {
+  const r1 = (h1 * Math.PI) / 180;
+  const r2 = (h2 * Math.PI) / 180;
+  const sinMean = Math.sin(r1) * w1 + Math.sin(r2) * (1 - w1);
+  const cosMean = Math.cos(r1) * w1 + Math.cos(r2) * (1 - w1);
+  return normalizeHeading((Math.atan2(sinMean, cosMean) * 180) / Math.PI);
+};
 
 const getCircularMean = (values: number[]) => {
   if (values.length === 0) return 0;
@@ -50,7 +58,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
 
   const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
     const now = performance.now();
-    if (now - lastCompassUpdateMsRef.current < 60) {
+    if (now - lastCompassUpdateMsRef.current < 80) {
       return;
     }
 
@@ -87,11 +95,11 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
       while (diff > 180) diff -= 360;
 
       const absDiff = Math.abs(diff);
-      if (absDiff < 3) {
-        return;
+      if (absDiff < 4) {
+        return; // dead band: ignore tiny oscillations
       }
-      if (absDiff > 60 && now - lastCompassUpdateMsRef.current < 180) {
-        return;
+      if (absDiff > 55 && now - lastCompassUpdateMsRef.current < 250) {
+        return; // reject spikes that flip >55° in under 250ms
       }
     }
 
@@ -281,27 +289,38 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
 
   const activeRawHeading = useMemo(() => {
     const hasReliableCompass = compassEnabled && lastAcceptedHeadingRef.current !== null;
-    const canUseGpsHeading =
-      !!gpsData?.speed &&
-      gpsData.speed > 1.5 &&
-      (gpsData.accuracy ?? Number.POSITIVE_INFINITY) < 20 &&
+    const speed = gpsData?.speed ?? 0;
+    const accuracy = gpsData?.accuracy ?? Number.POSITIVE_INFINITY;
+    const gpsHeadingValid =
+      speed > 0.8 &&
+      accuracy < 40 &&
       gpsData?.heading !== null &&
       gpsData?.heading !== undefined &&
       !Number.isNaN(gpsData.heading);
 
-    if (canUseGpsHeading && !hasReliableCompass) {
-      return gpsData.heading;
+    if (gpsHeadingValid) {
+      // GPS course heading is derived from actual displacement — much more stable
+      // than the magnetometer while walking (no step-vibration, arm-swing noise).
+      // At speeds above 1.5 m/s use GPS exclusively; below that blend with compass.
+      if (!hasReliableCompass || speed >= 1.5) {
+        return gpsData.heading as number;
+      }
+      // Blend: GPS weight grows linearly from 0.5 at 0.8 m/s to 1.0 at 1.5 m/s
+      const gpsWeight = 0.5 + 0.5 * Math.min(1, (speed - 0.8) / 0.7);
+      return blendCircularHeadings(gpsData.heading as number, magneticHeading, gpsWeight);
     }
+
+    // Stationary or poor GPS accuracy → use compass
     return magneticHeading;
   }, [compassEnabled, gpsData, magneticHeading]);
 
   const smoothedHeading = useSmoothHeading(activeRawHeading, {
-    deadband: 3,
-    mediumThreshold: 20,
-    largeThreshold: 60,
-    alphaSmall: 0.06,
-    alphaMedium: 0.1,
-    alphaLarge: 0.18,
+    deadband: 4,       // ignore sub-4° wobble entirely
+    mediumThreshold: 18,
+    largeThreshold: 55,
+    alphaSmall: 0.05,  // very slow for small oscillations (noise suppression)
+    alphaMedium: 0.12, // moderate for real turns
+    alphaLarge: 0.22,  // fast for sharp turns
   });
   const smoothedPosition = useSmoothPosition(gpsData ? { lat: gpsData.lat, lng: gpsData.lng } : null);
 
