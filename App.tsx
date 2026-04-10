@@ -484,19 +484,6 @@ export default function App() {
         showToast('In attesa del segnale GPS... Assicurati di essere all\'aperto.', 'warning');
         return;
       }
-      // Block navigation if user is more than 200 m from the cemetery perimeter
-      // (generous threshold to account for GPS inaccuracy of ±20-50 m)
-      if (pathfinder) {
-        const distToWall = pathfinder.distanceToPerimeter(gpsData.lat, gpsData.lng);
-        if (distToWall > 200) {
-          showToast(
-            'Navigazione guidata consentita solo all\'interno del cimitero.',
-            'warning',
-            4000
-          );
-          return;
-        }
-      }
       void ensureCompassPermission();
       calculateRoute({ lat: gpsData.lat, lng: gpsData.lng }, trail, 'navigating');
     },
