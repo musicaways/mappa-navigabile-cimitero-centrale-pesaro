@@ -505,8 +505,6 @@ export default function App() {
   // Multi-stop handlers
   const addMultiStop = useCallback(
     (trail: TrailData) => {
-      // Guard checked outside updater to avoid reading selectedTrailId inside setState
-      if (trail.id === selectedTrailId) return;
       setMultiStopQueue((prev) => {
         if (prev.some((t) => t.id === trail.id)) return prev;
         // Insert sorted by distance from current GPS (nearest first); fallback: append
@@ -520,7 +518,7 @@ export default function App() {
       });
       showToast(`Tappa aggiunta: ${trail.name}`, 'info', 2000);
     },
-    [userLocation, showToast, selectedTrailId]
+    [userLocation, showToast]
   );
 
   const removeMultiStop = useCallback((id: string) => {
@@ -536,7 +534,6 @@ export default function App() {
   // Desktop: add stop in click order (no GPS sorting)
   const addMultiStopDesktop = useCallback(
     (trail: TrailData) => {
-      if (trail.id === selectedTrailId) return; // Can't add primary destination as extra stop
       setMultiStopQueue((prev) => {
         if (prev.some((t) => t.id === trail.id)) return prev;
         return [...prev, trail];
@@ -544,7 +541,7 @@ export default function App() {
       setMultiStopSegmentPaths([]); setMultiStopSortedStops([]); // invalidate cached paths — recalculate on next print
       showToast(`Tappa aggiunta: ${trail.name}`, 'info', 2000);
     },
-    [showToast, selectedTrailId]
+    [showToast]
   );
 
   const handleInstallApp = useCallback(async () => {
