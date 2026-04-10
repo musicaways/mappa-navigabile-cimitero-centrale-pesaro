@@ -8,11 +8,17 @@ export const MAX_NATIVE_TILE_ZOOM = 19;
 
 export const CEMETERY_BOUNDS = L.latLngBounds([43.85, 12.85], [43.95, 13.0]);
 
-export const SATELLITE_TILE_URL = 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
-export const STREETS_TILE_URL = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+// Only satellite — round-robin across mt0-mt3 for parallel tile loading (4x throughput)
+const SATELLITE_SUBDOMAIN = (x: number, y: number, z: number): string =>
+  `https://mt${(x + y) % 4}.google.com/vt/lyrs=s&x=${x}&y=${y}&z=${z}`;
 
-export const getTileLayerUrl = (isSatelliteView: boolean): string =>
-  isSatelliteView ? SATELLITE_TILE_URL : STREETS_TILE_URL;
+export const SATELLITE_TILE_URL = 'https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
+export const OSM_FALLBACK_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+// 1x1 neutral grey tile shown when a tile fails to load
+const GREY_TILE_DATA_URI =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQ' +
+  'AABjkB6QAAAABJRU5ErkJggg==';
 
 export const toLatLngTuple = (position: Position): L.LatLngTuple => [position[1], position[0]];
 
@@ -38,8 +44,7 @@ export const getFeatureMarkerTarget = (feature: Feature<Geometry>): L.LatLngExpr
 };
 
 export const createBaseMap = (
-  container: HTMLDivElement,
-  isSatelliteView: boolean
+  container: HTMLDivElement
 ): { map: L.Map; tileLayer: L.TileLayer } => {
   const map = L.map(container, {
     zoomControl: false,
@@ -51,10 +56,10 @@ export const createBaseMap = (
     minZoom: 15,
     maxZoom: MAX_MAP_ZOOM,
     maxBounds: CEMETERY_BOUNDS,
-    maxBoundsViscosity: 0.5,
+    maxBoundsViscosity: 0.6,
     preferCanvas: false,
     zoomAnimation: true,
-    fadeAnimation: true,
+    fadeAnimation: false,
     markerZoomAnimation: true,
     doubleClickZoom: false,
   });
@@ -73,9 +78,24 @@ export const createBaseMap = (
     interactivePane.classList.add('leaflet-zoom-animated');
   }
 
-  const tileLayer = L.tileLayer(getTileLayerUrl(isSatelliteView), {
+  // OSM fallback layer beneath Google satellite — visible only when Google tiles fail
+  L.tileLayer(OSM_FALLBACK_URL, {
+    maxZoom: MAX_MAP_ZOOM,
+    maxNativeZoom: 19,
+    keepBuffer: 4,
+    updateWhenZooming: false,
+    updateWhenIdle: true,
+  }).addTo(map);
+
+  // Google Satellite — subdomains mt0-mt3 for parallel requests (browser allows ~6 per host)
+  const tileLayer = L.tileLayer(SATELLITE_TILE_URL, {
+    subdomains: ['0', '1', '2', '3'],
     maxZoom: MAX_MAP_ZOOM,
     maxNativeZoom: MAX_NATIVE_TILE_ZOOM,
+    keepBuffer: 6,
+    updateWhenZooming: false,
+    updateWhenIdle: true,
+    errorTileUrl: GREY_TILE_DATA_URI,
   }).addTo(map);
 
   return { map, tileLayer };

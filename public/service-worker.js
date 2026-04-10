@@ -1,5 +1,5 @@
 
-const SW_VERSION = 'v10';
+const SW_VERSION = 'v12';
 const APP_CACHE = `pesaro-cimitero-app-${SW_VERSION}`;
 const TILES_CACHE = `map-tiles-${SW_VERSION}`;
 const DATA_CACHE = `map-data-${SW_VERSION}`;
@@ -17,7 +17,7 @@ const CACHE_TTL_MS = {
 
 const CACHE_MAX_ENTRIES = {
   [APP_CACHE]: 120,
-  [TILES_CACHE]: 700,
+  [TILES_CACHE]: 1200,
   [DATA_CACHE]: 40,
 };
 
@@ -242,7 +242,12 @@ self.addEventListener('fetch', (event) => {
 
   if (url.hostname.includes('google.com') && url.pathname.includes('/vt')) {
     event.respondWith(
-      cacheFirst(request, TILES_CACHE).catch(() => new Response(null, { status: 204 }))
+      cacheFirst(request, TILES_CACHE).catch(async () => {
+        const cache = await caches.open(TILES_CACHE);
+        const stale = await cache.match(request);
+        if (stale) return stale;
+        return new Response(null, { status: 204 });
+      })
     );
     return;
   }
@@ -284,5 +289,40 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+});
+
+// ── Background Sync: aggiornamento KML ────────────────────────────────────
+const KML_SYNC_TAG = 'kml-update';
+// URL del KML remoto (stesso del fetch principale nell'app)
+const KML_REMOTE_URL = 'https://www.google.com/maps/d/kml?mid=1dzlxUTK3bz-7kChq1HASlXEpn6t5uQ8&forcekml=1';
+
+const refreshKmlCache = async () => {
+  try {
+    const response = await fetchWithTimeout(new Request(KML_REMOTE_URL, { cache: 'no-cache' }), 20000);
+    if (!response || !response.ok) return;
+
+    const cache = await caches.open(DATA_CACHE);
+    const headers = new Headers(response.headers);
+    headers.set(CACHE_STAMP_HEADER, String(Date.now()));
+    const blob = await response.clone().blob();
+    await cache.put(KML_REMOTE_URL, new Response(blob, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }));
+
+    // Notifica tutte le finestre aperte
+    const clients = await self.clients.matchAll({ type: 'window' });
+    clients.forEach((client) => client.postMessage({ type: 'KML_UPDATED' }));
+  } catch {
+    // Rilancia per far ritentare il sync al browser
+    throw new Error('KML refresh failed');
+  }
+};
+
+self.addEventListener('sync', (event) => {
+  if (event.tag === KML_SYNC_TAG) {
+    event.waitUntil(refreshKmlCache());
   }
 });

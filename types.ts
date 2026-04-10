@@ -36,3 +36,31 @@ export interface GpsData {
   accuracy: number | null;
   timestamp: number;
 }
+
+export type TurnDirection =
+  | 'start'
+  | 'straight'
+  | 'slight-right'
+  | 'right'
+  | 'slight-left'
+  | 'left'
+  | 'uturn'
+  | 'arrive';
+
+export interface TurnInstruction {
+  /** Sequential step number (1-based) */
+  step: number;
+  /** Index in navPath */
+  index: number;
+  lat: number;
+  lng: number;
+  direction: TurnDirection;
+  /** Distance from previous instruction (metres) */
+  distanceFromPrev: number;
+  /** Cumulative distance from start (metres) */
+  cumDistance: number;
+  /** Human-readable label in Italian */
+  label: string;
+  /** Unicode symbol for print/voice */
+  symbol: string;
+}

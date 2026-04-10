@@ -1,7 +1,7 @@
 
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { TrailData } from "./types";
+import { Coordinates, TrailData } from "./types";
 import { Feature, FeatureCollection, Geometry } from "geojson";
 
 export function cn(...inputs: ClassValue[]) {
@@ -29,10 +29,172 @@ export function isMobileDevice(): boolean {
   if (typeof window === 'undefined') return false;
   const ua = navigator.userAgent || '';
   const isMobileUserAgent = /Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(ua);
-  const isSmallViewport = window.matchMedia("(max-width: 1024px)").matches;
+  const isSmallViewport = window.innerWidth <= 1024;
   const hasCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
   const touchPoints = navigator.maxTouchPoints || 0;
-  return isMobileUserAgent || (isSmallViewport && (hasCoarsePointer || touchPoints > 0));
+  // Small viewport alone is sufficient (covers Chrome DevTools responsive mode)
+  return isMobileUserAgent || isSmallViewport || hasCoarsePointer || touchPoints > 1;
+}
+
+// --- Bearing / Direction Helpers ---
+
+export function getBearing(from: { lat: number; lng: number }, to: { lat: number; lng: number }): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLng = toRad(to.lng - from.lng);
+  const lat1 = toRad(from.lat);
+  const lat2 = toRad(to.lat);
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+export function bearingDiff(a: number, b: number): number {
+  let d = b - a;
+  while (d < -180) d += 360;
+  while (d > 180) d -= 360;
+  return d;
+}
+
+// --- Path / Distance Helpers ---
+
+/** Sum of haversine distances along a path (meters). */
+export function computePathDistance(path: Coordinates[]): number {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    total += calculateDistance(path[i - 1].lat, path[i - 1].lng, path[i].lat, path[i].lng);
+  }
+  return total;
+}
+
+/**
+ * Index of the path segment [i, i+1] closest to `point`.
+ * Uses the existing distToSegmentSquared helper after converting lat/lng → metres.
+ */
+export function findClosestSegmentIndex(
+  path: Coordinates[],
+  point: { lat: number; lng: number }
+): number {
+  if (path.length < 2) return 0;
+  const mPerLat = 111_320;
+  const mPerLng = 111_320 * Math.cos((point.lat * Math.PI) / 180);
+  const toXY = (c: { lat: number; lng: number }) => ({
+    x: c.lng * mPerLng,
+    y: c.lat * mPerLat,
+  });
+  const p = toXY(point);
+  let minDSq = Infinity;
+  let best = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const d = distToSegmentSquared(p, toXY(path[i]), toXY(path[i + 1]));
+    if (d < minDSq) { minDSq = d; best = i; }
+  }
+  return best;
+}
+
+// --- Turn-by-turn instruction generation ---
+
+import { TurnInstruction } from './types';
+
+/**
+ * Compute a compact list of turn-by-turn instructions from a navPath.
+ * Collapses micro-segments and ignores turns < 22° or closer than 12 m apart.
+ */
+export function computeTurnInstructions(path: Coordinates[]): TurnInstruction[] {
+  if (path.length < 2) return [];
+
+  const instructions: TurnInstruction[] = [];
+  let cumDist = 0;
+  let lastInstrDist = 0;
+  let step = 1;
+
+  const push = (
+    index: number,
+    direction: TurnInstruction['direction'],
+    label: string,
+    symbol: string,
+    distFromPrev: number
+  ) => {
+    instructions.push({
+      step: step++,
+      index,
+      lat: path[index].lat,
+      lng: path[index].lng,
+      direction,
+      distanceFromPrev: distFromPrev,
+      cumDistance: cumDist,
+      label,
+      symbol,
+    });
+  };
+
+  push(0, 'start', 'Parti da qui', '●', 0);
+
+  // Compute bearing of first segment (skip zero-length segments)
+  let lastBearing: number | null = null;
+  for (let i = 0; i < path.length - 1; i++) {
+    const seg = calculateDistance(path[i].lat, path[i].lng, path[i + 1].lat, path[i + 1].lng);
+    if (seg > 0.3) { lastBearing = getBearing(path[i], path[i + 1]); break; }
+  }
+  if (lastBearing === null) return instructions;
+
+  for (let i = 1; i < path.length - 1; i++) {
+    const seg = calculateDistance(path[i - 1].lat, path[i - 1].lng, path[i].lat, path[i].lng);
+    cumDist += seg;
+
+    const nextSeg = calculateDistance(path[i].lat, path[i].lng, path[i + 1].lat, path[i + 1].lng);
+    if (nextSeg < 0.3) continue;
+
+    const newBearing = getBearing(path[i], path[i + 1]);
+    const delta = bearingDiff(lastBearing, newBearing);
+    const abs = Math.abs(delta);
+
+    // Only register significant turns with minimum spacing
+    if (abs > 22 && cumDist - lastInstrDist > 12) {
+      let direction: TurnInstruction['direction'];
+      let label: string;
+      let symbol: string;
+
+      if (abs >= 145) { direction = 'uturn';        label = 'Fai inversione';      symbol = '↩'; }
+      else if (delta > 0 && abs >= 60) { direction = 'right';       label = 'Svolta a destra';   symbol = '→'; }
+      else if (delta > 0)              { direction = 'slight-right'; label = 'Tieni la destra';   symbol = '↗'; }
+      else if (abs >= 60)              { direction = 'left';         label = 'Svolta a sinistra'; symbol = '←'; }
+      else                             { direction = 'slight-left';  label = 'Tieni la sinistra'; symbol = '↖'; }
+
+      push(i, direction, label, symbol, cumDist - lastInstrDist);
+      lastInstrDist = cumDist;
+    }
+
+    lastBearing = newBearing;
+  }
+
+  // Final arrival
+  const last = path.length - 1;
+  const lastSeg = calculateDistance(path[last - 1].lat, path[last - 1].lng, path[last].lat, path[last].lng);
+  cumDist += lastSeg;
+  push(last, 'arrive', 'Destinazione raggiunta', '✓', cumDist - lastInstrDist);
+
+  return instructions;
+}
+
+/** Minimum distance (metres) from `point` to any segment of `path`. */
+export function distToPath(
+  path: Coordinates[],
+  point: { lat: number; lng: number }
+): number {
+  if (path.length < 2) return Infinity;
+  const mPerLat = 111_320;
+  const mPerLng = 111_320 * Math.cos((point.lat * Math.PI) / 180);
+  const toXY = (c: { lat: number; lng: number }) => ({
+    x: c.lng * mPerLng,
+    y: c.lat * mPerLat,
+  });
+  const p = toXY(point);
+  let minDSq = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    const d = distToSegmentSquared(p, toXY(path[i]), toXY(path[i + 1]));
+    if (d < minDSq) minDSq = d;
+  }
+  return Math.sqrt(minDSq);
 }
 
 // --- Geometry Helpers for Pathfinding ---

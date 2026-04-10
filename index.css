@@ -267,33 +267,54 @@ img {
     min-width: 48px;
     min-height: 48px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: rgba(17, 24, 39, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(15, 22, 36, 0.92);
     color: #ffffff;
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.28);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.2);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: transform 150ms ease, background-color 150ms ease, opacity 150ms ease;
+    transition: transform 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .gm-map-control:hover {
-    background: rgba(31, 41, 55, 0.98);
+    background: rgba(30, 42, 62, 0.98);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.25);
+  }
+
+  .gm-map-control:active {
+    transform: scale(0.93);
+    background: rgba(10, 16, 28, 0.98);
   }
 
   .gm-map-control-pill {
-    min-height: 42px;
-    padding: 0 14px;
+    min-height: 44px;
+    padding: 0 16px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(17, 24, 39, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(15, 22, 36, 0.92);
     color: #ffffff;
     display: inline-flex;
     align-items: center;
-    gap: 0.55rem;
+    gap: 0.6rem;
     font-size: 0.8125rem;
     font-weight: 600;
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.28);
+    letter-spacing: 0.01em;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.2);
+    transition: transform 120ms ease, background-color 120ms ease;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    white-space: nowrap;
+  }
+
+  .gm-map-control-pill:hover {
+    background: rgba(30, 42, 62, 0.98);
+  }
+
+  .gm-map-control-pill:active {
+    transform: scale(0.96);
   }
 }
 
@@ -348,6 +369,7 @@ img {
   will-change: transform;
   backface-visibility: hidden;
   transform: translateZ(0);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .animate-bounce-marker {
@@ -372,6 +394,33 @@ img {
   shape-rendering: geometricPrecision;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
+}
+
+/* ── Zoom-adaptive POI marker visibility ─────────────────────────────────────
+   At low zoom (< 17) POI pin markers clutter the map — hide them and rely
+   on the coloured area fills to convey location. Gate markers are always
+   shown. At medium zoom (17-18) pins are shown scaled down; at high zoom
+   they appear at full size with a subtle entrance animation.               */
+
+.map-zoom-low .poi-circle-icon {
+  display: none !important;
+}
+
+/* Fade/scale pins in smoothly when zooming in past the threshold */
+.map-zoom-high .poi-circle-icon .gm-map-pin {
+  animation: pin-appear 0.18s ease-out both;
+}
+
+@keyframes pin-appear {
+  from { opacity: 0; transform: scale(0.6) translateY(4px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0);   }
+}
+
+/* Gate markers are always visible but scale down gracefully at low zoom */
+.map-zoom-low .gate-marker-wrapper .gm-map-pin {
+  transform: scale(0.72);
+  transform-origin: bottom center;
+  opacity: 0.9;
 }
 
 .app-startup-splash {
@@ -500,6 +549,19 @@ img {
 @keyframes splash-float {
   0% { transform: translate3d(0, 0, 0) scale(1); }
   100% { transform: translate3d(10px, -12px, 0) scale(1.05); }
+}
+
+/* ── Compass calibration figure-8 animation ─────────────────────────────── */
+@keyframes compass-figure8 {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  12%  { transform: translate(18px, -14px) rotate(25deg); }
+  25%  { transform: translate(0, -22px) rotate(0deg); }
+  37%  { transform: translate(-18px, -14px) rotate(-25deg); }
+  50%  { transform: translate(0, 0) rotate(0deg); }
+  62%  { transform: translate(14px, 14px) rotate(20deg); }
+  75%  { transform: translate(0, 22px) rotate(0deg); }
+  87%  { transform: translate(-14px, 14px) rotate(-20deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {

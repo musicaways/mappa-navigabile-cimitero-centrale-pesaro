@@ -12,7 +12,7 @@ interface UseDeviceSensorsResult {
 }
 
 const normalizeHeading = (heading: number) => ((heading % 360) + 360) % 360;
-const HEADING_SAMPLE_WINDOW = 5;
+const HEADING_SAMPLE_WINDOW = 7;
 
 const getCircularMean = (values: number[]) => {
   if (values.length === 0) return 0;
@@ -30,10 +30,17 @@ const getCircularMean = (values: number[]) => {
 };
 
 export const useDeviceSensors = (): UseDeviceSensorsResult => {
-  const isMobile = isMobileDevice();
+  const [isMobile, setIsMobile] = useState(isMobileDevice);
   const [magneticHeading, setMagneticHeading] = useState(0);
   const [gpsData, setGpsData] = useState<GpsData | null>(null);
-  const [gpsLoading, setGpsLoading] = useState(isMobile);
+  const [gpsLoading, setGpsLoading] = useState(() => isMobileDevice());
+
+  // Reactively update isMobile on viewport resize (covers Chrome DevTools responsive mode)
+  useEffect(() => {
+    const update = () => setIsMobile(isMobileDevice());
+    window.addEventListener('resize', update, { passive: true });
+    return () => window.removeEventListener('resize', update);
+  }, []);
   const [compassEnabled, setCompassEnabled] = useState(false);
   const lastCompassUpdateMsRef = useRef(0);
   const compassWatchdogRef = useRef<number | null>(null);
@@ -43,7 +50,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
 
   const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
     const now = performance.now();
-    if (now - lastCompassUpdateMsRef.current < 90) {
+    if (now - lastCompassUpdateMsRef.current < 60) {
       return;
     }
 
@@ -56,7 +63,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
     if (typeof eventWithWebkit.webkitCompassHeading === 'number') {
       if (
         typeof eventWithWebkit.webkitCompassAccuracy === 'number' &&
-        eventWithWebkit.webkitCompassAccuracy > 55
+        eventWithWebkit.webkitCompassAccuracy > 40
       ) {
         return;
       }
@@ -80,10 +87,10 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
       while (diff > 180) diff -= 360;
 
       const absDiff = Math.abs(diff);
-      if (absDiff < 5) {
+      if (absDiff < 3) {
         return;
       }
-      if (absDiff > 60 && now - lastCompassUpdateMsRef.current < 220) {
+      if (absDiff > 60 && now - lastCompassUpdateMsRef.current < 180) {
         return;
       }
     }
@@ -187,7 +194,7 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
         if (!isActive) return;
         setGpsLoading(false);
       },
-      { enableHighAccuracy: false, maximumAge: Infinity, timeout: 5000 }
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 8000 }
     );
 
     const watchId = navigator.geolocation.watchPosition(
@@ -259,10 +266,10 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
 
     compassWatchdogRef.current = window.setInterval(() => {
       const elapsed = performance.now() - lastCompassUpdateMsRef.current;
-      if (elapsed > 4000 && document.visibilityState === 'visible') {
+      if (elapsed > 3000 && document.visibilityState === 'visible') {
         attachCompassListeners();
       }
-    }, 2000);
+    }, 1500);
 
     return () => {
       if (compassWatchdogRef.current !== null) {
@@ -276,8 +283,8 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
     const hasReliableCompass = compassEnabled && lastAcceptedHeadingRef.current !== null;
     const canUseGpsHeading =
       !!gpsData?.speed &&
-      gpsData.speed > 2.8 &&
-      (gpsData.accuracy ?? Number.POSITIVE_INFINITY) < 18 &&
+      gpsData.speed > 1.5 &&
+      (gpsData.accuracy ?? Number.POSITIVE_INFINITY) < 20 &&
       gpsData?.heading !== null &&
       gpsData?.heading !== undefined &&
       !Number.isNaN(gpsData.heading);
@@ -289,12 +296,12 @@ export const useDeviceSensors = (): UseDeviceSensorsResult => {
   }, [compassEnabled, gpsData, magneticHeading]);
 
   const smoothedHeading = useSmoothHeading(activeRawHeading, {
-    deadband: 5,
-    mediumThreshold: 28,
-    largeThreshold: 70,
-    alphaSmall: 0.04,
-    alphaMedium: 0.06,
-    alphaLarge: 0.1,
+    deadband: 3,
+    mediumThreshold: 20,
+    largeThreshold: 60,
+    alphaSmall: 0.06,
+    alphaMedium: 0.1,
+    alphaLarge: 0.18,
   });
   const smoothedPosition = useSmoothPosition(gpsData ? { lat: gpsData.lat, lng: gpsData.lng } : null);
 

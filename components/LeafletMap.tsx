@@ -3,14 +3,13 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import { Feature, Geometry } from 'geojson';
 import { MyMapsData, Coordinates } from '../types';
-import { isMobileDevice, getNearestTrail } from '../utils';
+import { isMobileDevice, getNearestTrail, findClosestSegmentIndex } from '../utils';
 import {
   createBaseMap,
   DEFAULT_CENTER,
   DEFAULT_ZOOM,
   MAX_MAP_ZOOM,
   getFeatureMarkerTarget,
-  getTileLayerUrl,
   toLatLngTuple,
 } from './leaflet-map/map-core';
 import { buildFeatureCollection, getBoundsFromFeatures, partitionFeatures } from './leaflet-map/layers';
@@ -53,8 +52,11 @@ interface LeafletMapProps {
   onPrintLayoutReady?: () => void;
   onPrintPrepared?: () => void;
   printMode?: boolean;
-  resetViewTrigger?: number; 
-  isSatelliteView?: boolean; 
+  printStopMarkers?: Array<{ lat: number; lng: number; step: number }>;
+  liveStopMarkers?: Array<{ lat: number; lng: number; step: number }>;
+  /** Queued multi-stop destinations shown on the main map before route calculation */
+  queuePreviewMarkers?: Array<{ lat: number; lng: number; step: number }>;
+  resetViewTrigger?: number;
 }
 
 interface MapViewSnapshot {
@@ -83,8 +85,10 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   onPrintLayoutReady,
   onPrintPrepared,
   printMode = false,
+  printStopMarkers = [],
+  liveStopMarkers = [],
+  queuePreviewMarkers = [],
   resetViewTrigger = 0,
-  isSatelliteView = true 
 }) => {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -102,8 +106,9 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   const selectedMarkerRef = useRef<L.Marker | null>(null); 
   
   // Navigation elements
-  const routeLineRef = useRef<L.Polyline | null>(null);
-  const routeGlowRef = useRef<L.Polyline | null>(null);
+  const routeLineRef = useRef<L.Polyline | null>(null);      // remaining (blue dashed)
+  const routeGlowRef = useRef<L.Polyline | null>(null);      // full-path glow (white)
+  const routeCompletedRef = useRef<L.Polyline | null>(null); // completed portion (grey)
   const navStartMarkerRef = useRef<L.Marker | null>(null);
   const navEndMarkerRef = useRef<L.Marker | null>(null);
   
@@ -112,11 +117,12 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   const [iconScale, setIconScale] = useState(1);
 
   const isDraggingRef = useRef(false);
-  const dragStartPosRef = useRef<{x: number, y: number} | null>(null); 
+  const dragStartPosRef = useRef<{x: number, y: number} | null>(null);
   const lastMousePosRef = useRef<{x: number, y: number} | null>(null);
   const activeTouchIdRef = useRef<number | null>(null);
   const pendingPanDeltaRef = useRef<{ x: number; y: number } | null>(null);
   const panRafRef = useRef<number | null>(null);
+  const dragResetTimerRef = useRef<number | null>(null);
   const lastAutoPanRef = useRef<{ lat: number; lng: number; at: number } | null>(null);
   const lastSelectionRef = useRef<{ id: string; at: number } | null>(null);
   const routeBoundsRef = useRef<L.LatLngBounds | null>(null);
@@ -300,12 +306,30 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   // 1. MAP INITIALIZATION & PANES
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    const { map, tileLayer } = createBaseMap(containerRef.current, isSatelliteView);
+    const { map, tileLayer } = createBaseMap(containerRef.current);
     tileLayerRef.current = tileLayer;
+
+    // Retry failed tiles with exponential backoff (max 2 attempts)
+    const handleTileError = (e: L.TileErrorEvent) => {
+      const img = e.tile as HTMLImageElement & { _retryCount?: number };
+      const retries = img._retryCount ?? 0;
+      if (retries < 2) {
+        img._retryCount = retries + 1;
+        const delay = retries === 0 ? 1000 : 3000;
+        setTimeout(() => {
+          const src = img.getAttribute('src') || '';
+          if (src && !src.startsWith('data:')) {
+            const sep = src.includes('?') ? '&' : '?';
+            img.src = `${src}${sep}_r=${retries + 1}`;
+          }
+        }, delay);
+      }
+    };
+    tileLayer.on('tileerror', handleTileError);
 
     const handleZoomEnd = () => {
       const zoom = map.getZoom();
-      setIsLowZoom(zoom < 16);
+      setIsLowZoom(zoom < 17);
       setIconScale(getIconScale(zoom));
     };
     map.on('zoomend', handleZoomEnd);
@@ -313,11 +337,12 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
 
     mapRef.current = map;
     return () => {
+      tileLayer.off('tileerror', handleTileError);
       map.off('zoomend', handleZoomEnd);
       map.remove();
       mapRef.current = null;
     };
-  }, [isSatelliteView]);
+  }, []);
 
   useEffect(() => {
     if (preparePrintLayoutTrigger === 0) return;
@@ -630,7 +655,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
                 pendingPanDeltaRef.current = null;
             }
         }
-        setTimeout(() => { isDraggingRef.current = false; }, 16); 
+        dragResetTimerRef.current = window.setTimeout(() => { isDraggingRef.current = false; dragResetTimerRef.current = null; }, 16);
         activeTouchIdRef.current = null;
         lastMousePosRef.current = null;
     };
@@ -669,18 +694,15 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
             cancelAnimationFrame(panRafRef.current);
             panRafRef.current = null;
         }
+        if (dragResetTimerRef.current !== null) {
+            window.clearTimeout(dragResetTimerRef.current);
+            dragResetTimerRef.current = null;
+        }
         pendingPanDeltaRef.current = null;
     };
   }, [effectiveDisplayRotation, onManualDrag]);
 
-  // 2. TOGGLE MAP TYPE
-  useEffect(() => {
-    if (tileLayerRef.current) {
-        tileLayerRef.current.setUrl(getTileLayerUrl(isSatelliteView));
-    }
-  }, [isSatelliteView]);
-
-  // 3. HANDLE RESIZE
+  // 2. HANDLE RESIZE
   useEffect(() => {
     if (mapRef.current) {
         mapRef.current.invalidateSize({ animate: false });
@@ -688,18 +710,34 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   }, [followUser, isMobile, navActive, effectiveDisplayRotation, printMode]);
 
   useEffect(() => {
-    const handleViewportChange = () => {
+    let orientationTimer: number | null = null;
+
+    const handleResize = () => {
       if (!mapRef.current) return;
       requestAnimationFrame(() => {
         mapRef.current?.invalidateSize({ animate: false });
       });
     };
 
-    window.addEventListener('resize', handleViewportChange, { passive: true });
-    window.addEventListener('orientationchange', handleViewportChange);
+    const handleOrientationChange = () => {
+      if (orientationTimer !== null) window.clearTimeout(orientationTimer);
+      orientationTimer = window.setTimeout(() => {
+        orientationTimer = null;
+        if (!mapRef.current) return;
+        mapRef.current.invalidateSize({ animate: false });
+        // Force tile refresh after orientation change
+        requestAnimationFrame(() => {
+          mapRef.current?.invalidateSize({ animate: false });
+        });
+      }, 300);
+    };
+
+    window.addEventListener('resize', handleResize, { passive: true });
+    window.addEventListener('orientationchange', handleOrientationChange);
     return () => {
-      window.removeEventListener('resize', handleViewportChange);
-      window.removeEventListener('orientationchange', handleViewportChange);
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleOrientationChange);
+      if (orientationTimer !== null) window.clearTimeout(orientationTimer);
     };
   }, []);
 
@@ -988,43 +1026,154 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
       setLayersReady(true);
   }, [data, selectedTrailId, showAllFeatures, effectiveDisplayRotation, iconScale, navPath]);
 
-  // 7. RENDER NAV PATH
+  // 7a. CREATE NAV PATH POLYLINES (runs when navPath changes)
   useEffect(() => {
     if (!mapRef.current || !layersReady) return;
 
-    if (routeLineRef.current) routeLineRef.current.remove();
-    if (routeGlowRef.current) routeGlowRef.current.remove();
-    if (navStartMarkerRef.current) navStartMarkerRef.current.remove();
-    if (navEndMarkerRef.current) navEndMarkerRef.current.remove();
+    if (routeGlowRef.current) { routeGlowRef.current.remove(); routeGlowRef.current = null; }
+    if (routeCompletedRef.current) { routeCompletedRef.current.remove(); routeCompletedRef.current = null; }
+    if (routeLineRef.current) { routeLineRef.current.remove(); routeLineRef.current = null; }
+    if (navStartMarkerRef.current) { navStartMarkerRef.current.remove(); navStartMarkerRef.current = null; }
+    if (navEndMarkerRef.current) { navEndMarkerRef.current.remove(); navEndMarkerRef.current = null; }
 
     if (navPath && navPath.length >= 2) {
-      routeGlowRef.current = L.polyline(navPath, {
-        color: '#ffffff', weight: 5.5, opacity: 0.88, lineCap: 'round', lineJoin: 'round',
-        className: 'nav-route-glow', interactive: false
+      const latlngs = navPath.map((p) => [p.lat, p.lng] as L.LatLngTuple);
+
+      // White glow behind the full path
+      routeGlowRef.current = L.polyline(latlngs, {
+        color: '#ffffff', weight: 5.5, opacity: 0.85, lineCap: 'round', lineJoin: 'round',
+        className: 'nav-route-glow', interactive: false,
       }).addTo(mapRef.current);
 
-      routeLineRef.current = L.polyline(navPath, {
-        color: '#2563eb', weight: 2.4, opacity: 1, dashArray: '10 6', lineCap: 'round', lineJoin: 'round',
-        className: 'nav-route-line', interactive: false
+      // Grey "completed" segment — empty initially, filled by progress effect
+      routeCompletedRef.current = L.polyline([], {
+        color: '#9ca3af', weight: 3, opacity: 0.65, lineCap: 'round', lineJoin: 'round',
+        interactive: false,
+      }).addTo(mapRef.current);
+
+      // Blue "remaining" segment — starts as full path
+      routeLineRef.current = L.polyline(latlngs, {
+        color: '#2563eb', weight: 3, opacity: 1, dashArray: '10 6', lineCap: 'round', lineJoin: 'round',
+        className: 'nav-route-line', interactive: false,
       }).addTo(mapRef.current);
 
       const start = navPath[0];
       navStartMarkerRef.current = L.marker([start.lat, start.lng], {
-        icon: createNavStartIcon(iconScale),
-        zIndexOffset: 3000, interactive: false
+        icon: createNavStartIcon(iconScale), zIndexOffset: 3000, interactive: false,
       }).addTo(mapRef.current);
 
       const end = navPath[navPath.length - 1];
       navEndMarkerRef.current = L.marker([end.lat, end.lng], {
-        icon: createNavEndIcon(iconScale),
-        zIndexOffset: 3000, interactive: false
+        icon: createNavEndIcon(iconScale), zIndexOffset: 3000, interactive: false,
       }).addTo(mapRef.current);
     }
   }, [navPath, layersReady, iconScale]);
 
+  // 7b. UPDATE ROUTE PROGRESS SPLIT (runs when user position changes during active nav)
+  useEffect(() => {
+    if (!navPath || navPath.length < 2 || !layersReady || !navActive) return;
+    if (!routeLineRef.current || !routeCompletedRef.current) return;
+    if (!userLocation) return;
+
+    const splitIdx = findClosestSegmentIndex(navPath, userLocation);
+    // completed: from start to split point (inclusive)
+    const completedLL = navPath
+      .slice(0, splitIdx + 2)
+      .map((p) => [p.lat, p.lng] as L.LatLngTuple);
+    // remaining: from split point to end
+    const remainingLL = navPath
+      .slice(splitIdx)
+      .map((p) => [p.lat, p.lng] as L.LatLngTuple);
+
+    routeCompletedRef.current.setLatLngs(completedLL);
+    routeLineRef.current.setLatLngs(remainingLL);
+  }, [userLocation, navPath, layersReady, navActive]);
+
+
   useEffect(() => {
     handledPathZoomTriggerRef.current = 0;
   }, [navPath]);
+
+  // PRINT STOP MARKERS — numbered circles at each multi-stop waypoint (print sandbox only)
+  const printStopMarkerRefs = useRef<L.Marker[]>([]);
+  useEffect(() => {
+    printStopMarkerRefs.current.forEach((m) => m.remove());
+    printStopMarkerRefs.current = [];
+
+    if (!printMode || !mapRef.current || !layersReady || printStopMarkers.length === 0) return;
+
+    printStopMarkers.forEach(({ lat, lng, step }) => {
+      const icon = L.divIcon({
+        className: 'bg-transparent',
+        html: `<div class="print-stop-marker">${step}</div>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      });
+      const marker = L.marker([lat, lng], { icon, zIndexOffset: 5000, interactive: false });
+      if (mapRef.current) marker.addTo(mapRef.current);
+      printStopMarkerRefs.current.push(marker);
+    });
+  }, [printMode, printStopMarkers, layersReady]);
+
+  // LIVE STOP MARKERS — numbered circles on the main map during multi-stop planning
+  const liveStopMarkerRefs = useRef<L.Marker[]>([]);
+  useEffect(() => {
+    liveStopMarkerRefs.current.forEach((m) => m.remove());
+    liveStopMarkerRefs.current = [];
+
+    if (printMode || !mapRef.current || !layersReady || liveStopMarkers.length === 0) return;
+
+    liveStopMarkers.forEach(({ lat, lng, step }) => {
+      const icon = L.divIcon({
+        className: 'bg-transparent',
+        html: `<div style="
+          width:26px;height:26px;border-radius:50%;
+          background:var(--gm-accent,#1a56db);color:#fff;
+          border:2.5px solid #fff;
+          font-size:11px;font-weight:900;
+          font-family:'DM Sans',Arial,sans-serif;
+          display:flex;align-items:center;justify-content:center;
+          box-shadow:0 2px 8px rgba(0,0,0,0.45);
+          line-height:1;
+        ">${step}</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+      });
+      const marker = L.marker([lat, lng], { icon, zIndexOffset: 4000, interactive: false });
+      if (mapRef.current) marker.addTo(mapRef.current);
+      liveStopMarkerRefs.current.push(marker);
+    });
+  }, [printMode, liveStopMarkers, layersReady]);
+
+  // QUEUE PREVIEW MARKERS — amber numbered pins shown before route calculation
+  const queuePreviewMarkerRefs = useRef<L.Marker[]>([]);
+  useEffect(() => {
+    queuePreviewMarkerRefs.current.forEach((m) => m.remove());
+    queuePreviewMarkerRefs.current = [];
+
+    if (printMode || !mapRef.current || !layersReady || queuePreviewMarkers.length === 0) return;
+
+    queuePreviewMarkers.forEach(({ lat, lng, step }) => {
+      const icon = L.divIcon({
+        className: 'bg-transparent',
+        html: `<div style="
+          width:26px;height:26px;border-radius:50%;
+          background:#f59e0b;color:#fff;
+          border:2.5px solid #fff;
+          font-size:11px;font-weight:900;
+          font-family:'DM Sans',Arial,sans-serif;
+          display:flex;align-items:center;justify-content:center;
+          box-shadow:0 2px 8px rgba(0,0,0,0.38);
+          line-height:1;
+        ">${step}</div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+      });
+      const marker = L.marker([lat, lng], { icon, zIndexOffset: 3500, interactive: false });
+      if (mapRef.current) marker.addTo(mapRef.current);
+      queuePreviewMarkerRefs.current.push(marker);
+    });
+  }, [printMode, queuePreviewMarkers, layersReady]);
 
   useEffect(() => {
     if (!mapRef.current || !layersReady || pathZoomTrigger <= 0) return;
@@ -1189,8 +1338,10 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   }, [selectedTrailId, zoomTrigger, data, getFeatureById, isMobile]);
 
   return (
-    <div 
+    <div
         ref={wrapperRef}
+        role="application"
+        aria-label="Mappa interattiva del cimitero"
         className={`leaflet-map-wrapper ${isLowZoom ? 'map-zoom-low' : 'map-zoom-high'}`}
         style={{
             position: 'relative',

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, MapPin, Palette, Printer, X } from 'lucide-react';
+import { ListOrdered, Loader2, MapPin, Palette, Printer, X } from 'lucide-react';
 import { TrailData } from '../types';
 
 interface PrintModalProps {
@@ -10,10 +10,20 @@ interface PrintModalProps {
   onPlan: (gate: TrailData) => void;
   isCalculating: boolean;
   hasPath: boolean;
+  pathDistanceM?: number;
   printInColor: boolean;
   onTogglePrintColorMode: () => void;
   onPrepareAndPrint: () => Promise<void>;
+  multiStopQueue?: TrailData[];
+  onRemoveStop?: (id: string) => void;
+  // Post-calculation sorted data
+  sortedStops?: TrailData[];
+  segmentDistancesM?: number[];
 }
+
+const WALK_M_PER_MIN = 4000 / 60;
+const fmtDist = (m: number) => m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+const fmtEta = (m: number) => { const mins = Math.ceil(m / WALK_M_PER_MIN); return mins > 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins} min`; };
 
 const PrintModal: React.FC<PrintModalProps> = ({
   isOpen,
@@ -23,10 +33,18 @@ const PrintModal: React.FC<PrintModalProps> = ({
   onPlan,
   isCalculating,
   hasPath,
+  pathDistanceM = 0,
   printInColor,
   onTogglePrintColorMode,
   onPrepareAndPrint,
+  multiStopQueue = [],
+  onRemoveStop,
+  sortedStops = [],
+  segmentDistancesM = [],
 }) => {
+  const etaLabel = pathDistanceM > 0
+    ? `${fmtDist(pathDistanceM)} · ~${fmtEta(pathDistanceM)} a piedi`
+    : '';
   const [selectedGateId, setSelectedGateId] = useState<string | null>(null);
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
 
@@ -74,6 +92,60 @@ const PrintModal: React.FC<PrintModalProps> = ({
           <section>
             <p className="gm-section-title">Punto selezionato</p>
             <h3 className="mt-1 text-lg font-semibold text-[var(--gm-text)] leading-tight">{trailName}</h3>
+
+            {/* After calculation: sorted route with distances */}
+            {sortedStops.length > 0 && hasPath ? (
+              <div className="mt-2 rounded-xl border border-emerald-200 overflow-hidden">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border-b border-emerald-100">
+                  <ListOrdered className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wide">
+                    Percorso ottimizzato · {sortedStops.length} tappe
+                  </span>
+                </div>
+                {sortedStops.map((stop, i) => {
+                  const distM = segmentDistancesM[i] ?? 0;
+                  return (
+                    <div key={stop.id} className="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--gm-border-soft)] last:border-0 bg-white">
+                      <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                        {i + 1}
+                      </div>
+                      <span className="text-xs text-[var(--gm-text)] truncate flex-1">{stop.name}</span>
+                      {distM > 0 && (
+                        <span className="text-[10px] text-[var(--gm-text-muted)] font-medium shrink-0">{fmtDist(distM)}</span>
+                      )}
+                      {onRemoveStop && (
+                        <button onClick={() => onRemoveStop(stop.id)} className="p-0.5 rounded hover:bg-[var(--gm-surface-soft)]" title="Rimuovi tappa">
+                          <X className="w-3 h-3 text-[var(--gm-text-muted)]" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : multiStopQueue.length > 0 ? (
+              /* Before calculation: click order */
+              <div className="mt-2 rounded-xl border border-[color:var(--gm-border)] overflow-hidden">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--gm-surface-soft)] border-b border-[color:var(--gm-border-soft)]">
+                  <ListOrdered className="w-3.5 h-3.5 text-[var(--gm-accent)]" />
+                  <span className="text-[11px] font-semibold text-[var(--gm-text-muted)] uppercase tracking-wide">
+                    + {multiStopQueue.length} {multiStopQueue.length === 1 ? 'tappa aggiuntiva' : 'tappe aggiuntive'}
+                  </span>
+                </div>
+                {[{ name: trailName, id: '__primary__' }, ...multiStopQueue].map((stop, i) => (
+                  <div key={stop.id} className="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--gm-border-soft)] last:border-0">
+                    <div className="w-5 h-5 rounded-full bg-[var(--gm-accent)] text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                      {i + 1}
+                    </div>
+                    <span className="text-xs text-[var(--gm-text)] truncate flex-1">{stop.name}</span>
+                    {onRemoveStop && i > 0 && (
+                      <button onClick={() => onRemoveStop(stop.id)} className="p-0.5 rounded hover:bg-[var(--gm-surface-soft)]">
+                        <X className="w-3 h-3 text-[var(--gm-text-muted)]" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </section>
 
           <section>
@@ -122,10 +194,13 @@ const PrintModal: React.FC<PrintModalProps> = ({
 
           {hasPath && !isCalculating && (
             <div
-              className="gm-card px-3 py-3 text-sm text-[var(--gm-success)]"
+              className="gm-card px-3 py-3 text-sm text-[var(--gm-success)] space-y-0.5"
               style={{ background: 'color-mix(in srgb, var(--gm-success) 10%, white)' }}
             >
-              Percorso calcolato e pronto per la stampa.
+              <p>Percorso calcolato e pronto per la stampa.</p>
+              {etaLabel && (
+                <p className="text-xs font-semibold opacity-80">{etaLabel}</p>
+              )}
             </div>
           )}
         </div>

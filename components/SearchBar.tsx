@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { MapPin, Search, X } from 'lucide-react';
+import { Heart, MapPin, Search, X } from 'lucide-react';
 import { TrailData } from '../types';
 import { cn } from '../utils';
+import { FavoriteItem } from '../hooks/useFavorites';
 
 interface SearchBarProps {
   trails: TrailData[];
@@ -9,7 +10,48 @@ interface SearchBarProps {
   openRequestKey?: number;
   onOpen?: () => void;
   onOpenChange?: (isOpen: boolean) => void;
+  favorites?: FavoriteItem[];
 }
+
+// ─── Fuzzy search helpers ───────────────────────────────────────────────────
+
+/** Strips accents and lowercases a string for locale-insensitive comparison. */
+const normalizeStr = (s: string): string =>
+  s.normalize('NFD').replace(/\p{Mn}/gu, '').toLowerCase();
+
+/**
+ * Subsequence fuzzy match: returns a positive score when all chars of `query`
+ * appear (in order, not necessarily consecutive) inside `target`.
+ * Returns 0 when the match fails or `query` is already an exact substring.
+ * Consecutive character runs receive a compounding bonus so tight matches
+ * score higher than scattered ones (e.g. "padgl" inside "padiglione").
+ */
+function fuzzySubsequenceScore(query: string, target: string): number {
+  if (query.length < 3) return 0;          // skip fuzzy for very short queries
+  if (target.includes(query)) return 0;    // exact-substring case — already scored above
+
+  let qi = 0;
+  let consecutive = 0;
+  let total = 0;
+
+  for (let ti = 0; ti < target.length && qi < query.length; ti++) {
+    if (query[qi] === target[ti]) {
+      qi++;
+      consecutive++;
+      total += consecutive * 2; // reward runs of consecutive matches
+    } else {
+      consecutive = 0;
+    }
+  }
+
+  if (qi < query.length) return 0; // not all chars matched → no result
+
+  // Scale by density (query length / target length) so a tight match in a
+  // short word scores higher than a scattered match in a long description.
+  return Math.round(total * (query.length / target.length));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 const SearchBar: React.FC<SearchBarProps> = ({
   trails,
@@ -17,30 +59,46 @@ const SearchBar: React.FC<SearchBarProps> = ({
   openRequestKey = 0,
   onOpen,
   onOpenChange,
+  favorites = [],
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query), 180);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q.length < 2) {
-      return [];
-    }
+    const raw = debouncedQuery.trim();
+    const q = normalizeStr(raw);
+    if (q.length < 2) return [];
 
     return trails
       .map((trail) => {
-        const name = trail.name.toLowerCase();
-        const keywords = trail.keywords.join(' ').toLowerCase();
-        const description = trail.description.toLowerCase();
+        const name = normalizeStr(trail.name);
+        const keywords = normalizeStr(trail.keywords.join(' '));
+        const description = normalizeStr(trail.description);
         let score = 0;
 
+        // Exact / substring matches (highest priority)
         if (name.startsWith(q)) score += 120;
         if (name.includes(q)) score += 80;
         if (keywords.includes(q)) score += 45;
         if (description.includes(q)) score += 15;
+
+        // Fuzzy fallback — only when no exact match found.
+        // Applied only to the name field (shorter, more reliable) to avoid
+        // scattered false-positives in long description/keywords strings.
+        // A minimum raw score of 6 suppresses one-char-skip accidents.
+        if (score === 0) {
+          const fuzzyName = fuzzySubsequenceScore(q, name);
+          if (fuzzyName >= 6) score += fuzzyName;
+        }
 
         return { trail, score };
       })
@@ -48,7 +106,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
       .sort((a, b) => b.score - a.score || a.trail.name.localeCompare(b.trail.name, 'it'))
       .slice(0, 40)
       .map((entry) => entry.trail);
-  }, [query, trails]);
+  }, [debouncedQuery, trails]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -161,6 +219,30 @@ const SearchBar: React.FC<SearchBarProps> = ({
           )}
         />
       </div>
+
+      {/* Favorites section — shown when search is open but no query yet */}
+      {isOpen && query.trim().length < 2 && favorites.length > 0 && (
+        <div className="gm-panel-elevated w-full mt-2 max-h-[40vh] overflow-y-auto overflow-x-hidden">
+          <div className="px-4 py-2 border-b border-[color:var(--gm-border-soft)] flex items-center gap-1.5">
+            <Heart className="w-3.5 h-3.5 fill-rose-400 text-rose-400" />
+            <span className="text-[11px] font-semibold text-[var(--gm-text-muted)] uppercase tracking-wide">Preferiti</span>
+          </div>
+          {favorites.map((fav) => {
+            const trail = trails.find((t) => t.id === fav.id);
+            if (!trail) return null;
+            return (
+              <button
+                key={fav.id}
+                onClick={() => handleSelect(trail)}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-left border-b border-[color:var(--gm-border-soft)] last:border-0 hover:bg-[var(--gm-surface-soft)] transition-colors"
+              >
+                <Heart className="w-4 h-4 fill-rose-400 text-rose-400 shrink-0" />
+                <span className="text-sm font-medium text-[var(--gm-text)] truncate">{trail.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {isOpen && results.length > 0 && (
         <div className="gm-panel-elevated w-full mt-2 max-h-[50vh] overflow-y-auto overflow-x-hidden">

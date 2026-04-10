@@ -149,6 +149,33 @@ export class Pathfinder {
     return { minLng, maxLng, minLat, maxLat };
   }
 
+  /**
+   * Returns the minimum distance in metres from (lat, lng) to any perimeter wall segment.
+   * Returns Infinity if no perimeter walls are defined.
+   */
+  public distanceToPerimeter(lat: number, lng: number): number {
+    if (this.perimeterWalls.length === 0) return Infinity;
+    // 1 degree lat ≈ 111320 m; 1 degree lng ≈ cos(lat)*111320 m
+    const cosLat = Math.cos((lat * Math.PI) / 180);
+    let minDistSq = Infinity;
+    for (const seg of this.perimeterWalls) {
+      // Convert segment endpoints to metres relative to (lat, lng)
+      const ax = (seg.p1.x - lng) * cosLat * 111320;
+      const ay = (seg.p1.y - lat) * 111320;
+      const bx = (seg.p2.x - lng) * cosLat * 111320;
+      const by = (seg.p2.y - lat) * 111320;
+      const px = 0; const py = 0;
+      const dx = bx - ax; const dy = by - ay;
+      const lenSq = dx * dx + dy * dy;
+      let t = lenSq > 0 ? ((px - ax) * dx + (py - ay) * dy) / lenSq : 0;
+      t = Math.max(0, Math.min(1, t));
+      const nearX = ax + t * dx; const nearY = ay + t * dy;
+      const dSq = nearX * nearX + nearY * nearY;
+      if (dSq < minDistSq) minDistSq = dSq;
+    }
+    return Math.sqrt(minDistSq);
+  }
+
   public async findPath(start: Coordinates, end: Coordinates): Promise<Coordinates[]> {
     const directDistance = calculateDistance(start.lat, start.lng, end.lat, end.lng);
     const padding = Math.max(0.002, directDistance / 111320 * 0.5); 
@@ -165,7 +192,10 @@ export class Pathfinder {
 
     const activeObstacles = this.obstacles.filter(boxFilter);
     const activeRoads = this.roadNetwork.filter(boxFilter);
-    const activeWalls = this.perimeterWalls.filter(boxFilter);
+    // Perimeter walls are used as HARD boundaries — always include ALL of them,
+    // not just those inside the search bounding box. This prevents routes from
+    // slipping through wall gaps that lie outside the start→end bbox.
+    const activeWalls = this.perimeterWalls;
 
     // --- GRID PARAMETERS ---
     const latDistMeters = (maxLat - minLat) * 111320;
@@ -195,7 +225,10 @@ export class Pathfinder {
     const roadSnapDistSq = Math.pow(2.5 * latPerMeter, 2);
     const obstacleBufferSq = Math.pow(SAFETY_BUFFER_METERS * latPerMeter, 2);
     const maxOffRoadDistSq = Math.pow(5.0 * latPerMeter, 2);
-    const wallBufferSq = Math.pow(1.0 * latPerMeter, 2); 
+    // Increase wall buffer to 2 m — wider exclusion zone so the path cannot
+    // squeeze through at grid boundaries. The cost is set to Number.MAX_SAFE_INTEGER/2
+    // below, which makes wall nodes effectively impassable.
+    const wallBufferSq = Math.pow(2.0 * latPerMeter, 2);
 
     // --- JIT NODE CREATOR ---
     const getNode = (x: number, y: number): Node => {
@@ -211,13 +244,13 @@ export class Pathfinder {
       let costMultiplier = 1.0;
 
       if (isNearWall) {
-          costMultiplier = 2000000.0; // Invisible wall
+          costMultiplier = 1e9; // Hard wall — effectively impassable
       } else {
           // 2. Check Obstacles (only if not a wall)
           const isInsideWall = this.isBlocked(lat, lng, activeObstacles);
-          
+
           if (isInsideWall) {
-              costMultiplier = 1000000.0; // Building
+              costMultiplier = 1e7; // Building interior
           } else {
               // 3. Check Roads & Proximity
               const distToRoadSq = this.getDistToSegmentsSq(lat, lng, activeRoads);
@@ -266,7 +299,7 @@ export class Pathfinder {
         
         // Check exact match first
         const centerNode = getNode(cx, cy);
-        if (centerNode.costMultiplier < 1000) return centerNode;
+        if (centerNode.costMultiplier < 500) return centerNode;
 
         // Spiral search radius
         const maxRadius = Math.max(50, Math.ceil(width / 10)); 
@@ -281,7 +314,7 @@ export class Pathfinder {
                     const ny = cy + dy;
                     if (nx >= 0 && nx <= width && ny >= 0 && ny <= height) {
                         const node = getNode(nx, ny);
-                        if (node.costMultiplier < 1000) return node; // Found walkable!
+                        if (node.costMultiplier < 500) return node; // Found walkable!
                     }
                 }
             }
