@@ -78,15 +78,6 @@ export const createBaseMap = (
     interactivePane.classList.add('leaflet-zoom-animated');
   }
 
-  // OSM fallback layer beneath Google satellite — visible only when Google tiles fail
-  L.tileLayer(OSM_FALLBACK_URL, {
-    maxZoom: MAX_MAP_ZOOM,
-    maxNativeZoom: 19,
-    keepBuffer: 4,
-    updateWhenZooming: false,
-    updateWhenIdle: true,
-  }).addTo(map);
-
   // Google Satellite — subdomains mt0-mt3 for parallel requests (browser allows ~6 per host)
   const tileLayer = L.tileLayer(SATELLITE_TILE_URL, {
     subdomains: ['0', '1', '2', '3'],
