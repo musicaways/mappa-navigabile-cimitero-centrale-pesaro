@@ -18,6 +18,9 @@ interface BottomSheetProps {
   onCopyCoords?: (trail: TrailData) => void;
   onAddStop?: (trail: TrailData) => void;
   stopAlreadyQueued?: boolean;
+  multiStopQueue?: TrailData[];
+  onRemoveStop?: (id: string) => void;
+  onClearStops?: () => void;
 }
 
 const BottomSheet: React.FC<BottomSheetProps> = ({
@@ -31,6 +34,9 @@ const BottomSheet: React.FC<BottomSheetProps> = ({
   onCopyCoords,
   onAddStop,
   stopAlreadyQueued = false,
+  multiStopQueue = [],
+  onRemoveStop,
+  onClearStops,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [coordsCopied, setCoordsCopied] = useState(false);
@@ -171,6 +177,50 @@ const BottomSheet: React.FC<BottomSheetProps> = ({
               <ListOrdered className="w-3.5 h-3.5" />
               {stopAlreadyQueued ? 'Tappa già in coda' : 'Aggiungi tappa al percorso'}
             </button>
+          )}
+
+          {/* Multi-stop queue — integrated inside the sheet, no overlap */}
+          {multiStopQueue.length > 0 && (
+            <div className="mt-3 rounded-xl border border-[color:var(--gm-border)] overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--gm-surface-soft)] border-b border-[color:var(--gm-border-soft)]">
+                <div className="flex items-center gap-1.5">
+                  <ListOrdered className="w-3.5 h-3.5 text-[var(--gm-accent)]" />
+                  <span className="text-[11px] font-semibold text-[var(--gm-text-muted)] uppercase tracking-wide">
+                    Tappe in coda ({multiStopQueue.length})
+                  </span>
+                </div>
+                {onClearStops && (
+                  <button
+                    onClick={onClearStops}
+                    className="text-[11px] text-rose-500 font-semibold px-2 py-0.5 rounded-md hover:bg-rose-50 transition-colors"
+                  >
+                    Rimuovi tutte
+                  </button>
+                )}
+              </div>
+              {multiStopQueue.map((stop, index) => (
+                <div
+                  key={stop.id}
+                  className="flex items-center gap-2 px-3 py-2 border-b border-[color:var(--gm-border-soft)] last:border-0"
+                >
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 text-white"
+                    style={{ background: 'var(--gm-accent)' }}>
+                    {index + 1}
+                  </div>
+                  <MapPin className="w-3 h-3 text-[var(--gm-text-muted)] flex-shrink-0" />
+                  <span className="text-xs text-[var(--gm-text)] truncate flex-1">{stop.name}</span>
+                  {onRemoveStop && (
+                    <button
+                      onClick={() => onRemoveStop(stop.id)}
+                      className="p-1 rounded-full hover:bg-[var(--gm-surface-soft)] transition-colors flex-shrink-0"
+                      aria-label={`Rimuovi ${stop.name}`}
+                    >
+                      <X className="w-3 h-3 text-[var(--gm-text-muted)]" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
 
           {/* Weather */}

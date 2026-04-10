@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import BottomSheet from './components/BottomSheet';
 import CompassCalibrationModal from './components/CompassCalibrationModal';
-import MultiStopPanel from './components/MultiStopPanel';
 import HelpModal from './components/HelpModal';
 import InfoSidebarDesktop from './components/InfoSidebarDesktop';
 import InfoModal from './components/InfoModal';
@@ -1034,35 +1033,6 @@ export default function App() {
       )}
 
 
-      {/* "Vicino a me" button — mobile, when GPS available, not navigating, no trail selected */}
-      {isMobile && userLocation && !isNavigating && !selectedTrail && data && (
-        <button
-          onClick={() => {
-            if (!data) return;
-            // Find nearest trail to current location
-            const nearest = data.trails.reduce<{ id: string; dist: number } | null>((best, t) => {
-              const feat = data.featureMap[t.id];
-              if (!feat?.geometry) return best;
-              let lat = userLocation.lat, lng = userLocation.lng;
-              const geom = feat.geometry;
-              if (geom.type === 'Point') { lng = geom.coordinates[0]; lat = geom.coordinates[1]; }
-              else if (geom.type === 'LineString' && geom.coordinates[0]) { lng = geom.coordinates[0][0]; lat = geom.coordinates[0][1]; }
-              else if (geom.type === 'Polygon' && geom.coordinates[0]?.[0]) { lng = geom.coordinates[0][0][0]; lat = geom.coordinates[0][0][1]; }
-              else return best;
-              const d = calculateDistance(userLocation.lat, userLocation.lng, lat, lng);
-              if (!best || d < best.dist) return { id: t.id, dist: d };
-              return best;
-            }, null);
-            if (nearest) handleSelectTrailId(nearest.id, true);
-          }}
-          className="fixed bottom-16 right-4 z-[2000] gm-map-control px-3 h-10 flex items-center gap-2 text-xs font-semibold no-print"
-          title="Trova il punto più vicino a me"
-          aria-label="Vicino a me"
-        >
-          <Target className="w-4 h-4 text-[var(--gm-accent)]" />
-          Vicino a me
-        </button>
-      )}
 
       {!isNavigating && (
         <QuickActionsFab
@@ -1082,14 +1052,6 @@ export default function App() {
 
       {!isNavigating && isMobile && !showPrintModal && (
         <div className="bottom-sheet-ui">
-          {/* Multi-stop queue panel — shows above BottomSheet when stops are queued */}
-          {selectedTrail && multiStopQueue.length > 0 && (
-            <MultiStopPanel
-              stops={multiStopQueue}
-              onRemove={removeMultiStop}
-              onClear={clearMultiStops}
-            />
-          )}
           <BottomSheet
             trail={selectedTrail}
             onClose={() => { clearSelection(); clearMultiStops(); }}
@@ -1112,8 +1074,11 @@ export default function App() {
               navigator.clipboard.writeText(text).catch(() => {});
               showToast('Coordinate copiate negli appunti.', 'info', 2000);
             }}
-            onAddStop={userLocation ? addMultiStop : undefined}
+            onAddStop={addMultiStop}
             stopAlreadyQueued={!!selectedTrail && multiStopQueue.some((t) => t.id === selectedTrail.id)}
+            multiStopQueue={multiStopQueue}
+            onRemoveStop={removeMultiStop}
+            onClearStops={clearMultiStops}
           />
         </div>
       )}
